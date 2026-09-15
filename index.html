@@ -21,7 +21,7 @@
     --muted:    #6B7A94;
     --rule:     rgba(28,63,149,.13);
 
-    --face: clamp(54px, min(9.5vw, 13.5vh), 168px);
+    --face: clamp(72px, min(20vw, 26vh), 290px);
   }
 
   *{ box-sizing:border-box; margin:0; padding:0; }
@@ -80,14 +80,17 @@
   /* ---------- scene 1: clocks ---------- */
   .row{
     flex: 1 1 auto; min-height: 0;
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0,1fr));
-    align-content: center; justify-items: center;
-    gap: clamp(10px,1.8vh,26px) clamp(6px,1.2vw,26px);
+    display: flex; flex-wrap: wrap;
+    align-content: center; justify-content: center;
+    gap: clamp(12px,2.2vh,34px) clamp(6px,1.2vw,30px);
     width: 100%;
+    --cols: 4;
+    --colgap: clamp(6px,1.2vw,30px);
   }
   .clock{ display:flex; flex-direction:column; align-items:center;
-          text-align:center; max-width:100%; }
+          text-align:center; min-width:0;
+          flex: 0 0 auto;
+          width: calc((100% - (var(--cols) - 1) * var(--colgap)) / var(--cols)); }
 
   /* the shadow sits on a wrapper, not on the SVG — an SVG filter would
      force the whole dial to re-rasterise on every frame of the sweep */
@@ -127,11 +130,11 @@
     padding: clamp(4px,1vh,14px) 0 clamp(6px,1.2vh,16px);
   }
   .board-head h2{
-    font-size: clamp(15px,2.6vh,34px); font-weight:600;
+    font-size: clamp(18px,3vh,40px); font-weight:600;
     letter-spacing:.2em; text-indent:.2em;
   }
   .board-head .note{
-    font-size: clamp(10px,1.4vh,18px); color:var(--muted);
+    font-size: clamp(12px,1.7vh,23px); color:var(--muted);
     letter-spacing:.08em;
   }
   .board-head .note b{ color: var(--crimson); font-weight:600; }
@@ -154,8 +157,8 @@
     min-width: 0;
   }
   .board > .hd{
-    font-size: clamp(8px,1.05vh,13px); color: var(--muted);
-    letter-spacing:.2em; text-indent:.2em;
+    font-size: clamp(10px,1.3vh,17px); color: var(--muted);
+    letter-spacing:.18em; text-indent:.18em;
     padding-top: clamp(6px,1.1vh,14px); padding-bottom: clamp(6px,1.1vh,14px);
     border-bottom-color: rgba(28,63,149,.22);
   }
@@ -166,30 +169,30 @@
   .board > .cell.today.c-time{ box-shadow: inset 3px 0 0 var(--crimson); }
   .board > .cell.gone{ opacity: .42; }
 
-  .c-time{ font-size: clamp(14px,2.3vh,31px); font-weight:600;
+  .c-time{ font-size: clamp(17px,2.85vh,39px); font-weight:600;
            font-variant-numeric: tabular-nums; letter-spacing:.02em; }
   .cell.today .c-time-v{ color: var(--crimson); }
 
   .place{ display:flex; align-items:baseline; gap:.55em; min-width:0; }
-  .place b{ font-size: clamp(13px,2.1vh,29px); font-weight:500; letter-spacing:.05em;
+  .place b{ font-size: clamp(16px,2.6vh,36px); font-weight:500; letter-spacing:.05em;
             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .place i{ font-style:normal; font-size: clamp(9px,1.2vh,16px); color:var(--muted);
+  .place i{ font-style:normal; font-size: clamp(11px,1.55vh,21px); color:var(--muted);
             letter-spacing:.09em; white-space:nowrap; }
 
-  .c-flight{ font-size: clamp(11px,1.6vh,22px); font-variant-numeric: tabular-nums;
+  .c-flight{ font-size: clamp(13px,1.95vh,27px); font-variant-numeric: tabular-nums;
              letter-spacing:.06em; white-space:nowrap; }
-  .c-when{ font-size: clamp(10px,1.45vh,20px); letter-spacing:.09em; white-space:nowrap; }
+  .c-when{ font-size: clamp(12px,1.8vh,25px); letter-spacing:.09em; white-space:nowrap; }
   .c-when .chip{ color: var(--crimson); font-weight:600; letter-spacing:.16em; }
   .c-when .off{ color: var(--muted); letter-spacing:.14em; }
 
-  .c-seats{ font-size: clamp(10px,1.4vh,19px); letter-spacing:.08em; white-space:nowrap;
+  .c-seats{ font-size: clamp(12px,1.75vh,24px); letter-spacing:.08em; white-space:nowrap;
             justify-content:flex-end; }
   .c-seats .free{ color: var(--green); font-weight:600; }
   .c-seats .full{ color: var(--muted); }
 
   .board .empty{
     grid-column: 1 / -1; justify-content:center; border-bottom:none;
-    color: var(--muted); font-size: clamp(11px,1.6vh,20px); letter-spacing:.12em;
+    color: var(--muted); font-size: clamp(13px,1.95vh,26px); letter-spacing:.12em;
     padding: clamp(20px,5vh,60px) 0;
   }
 
@@ -227,17 +230,17 @@
   }
 
   @media (max-width: 1280px){
-    :root{ --face: clamp(54px, min(11vw, 12.5vh), 136px); }
-    .row{ grid-template-columns: repeat(5, minmax(0,1fr)); }
+    :root{ --face: clamp(72px, min(21vw, 24vh), 230px); }
+    .row{ --cols: 4; }
   }
   @media (max-width: 860px){
-    :root{ --face: clamp(52px, min(17vw, 12vh), 120px); }
-    .row{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+    :root{ --face: clamp(64px, min(27vw, 22vh), 190px); }
+    .row{ --cols: 3; }
     .c-flight, .board > .hd.h-flight{ display:none; }
   }
   @media (max-width: 560px){
-    :root{ --face: clamp(48px, 22vw, 104px); }
-    .row{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+    :root{ --face: clamp(56px, 30vw, 150px); }
+    .row{ --cols: 2; }
   }
 </style>
 </head>
@@ -247,6 +250,7 @@
 
   <div class="stage">
     <section class="scene" id="sc-clocks"><div class="row" id="row"></div></section>
+    <section class="scene" id="sc-clocks2"><div class="row" id="row2"></div></section>
 
     <section class="scene" id="sc-departures">
       <div class="board-head"><h2>DEPARTURES</h2><div class="note" id="note-dep"></div></div>
@@ -270,6 +274,7 @@
 /* every destination Al-Naser flies to, ordered west to east by clock.
    Use \n in a name to choose where it breaks onto a second line. */
 const CLOCKS = [
+  { label: 'London',                    country: 'United Kingdom',       zone: 'Europe/London'     },
   { label: 'Paris',                     country: 'France',               zone: 'Europe/Paris'      },
   { label: 'Sarajevo',                  country: 'Bosnia & Herzegovina', zone: 'Europe/Sarajevo'   },
   { label: 'Manama',                    country: 'Bahrain',              zone: 'Asia/Bahrain'      },
@@ -289,10 +294,14 @@ const CLOCKS = [
 
 // how long each screen stays up, in seconds
 const SCENES = [
-  { id: 'clocks',     hold: 18 },
+  { id: 'clocks',     hold: 14 },
+  { id: 'clocks2',    hold: 14 },
   { id: 'departures', hold: 22 },
   { id: 'arrivals',   hold: 22 },
 ];
+
+// the clocks are split over two screens so each dial can be large
+const CLOCKS_PER_SCREEN = 8;
 
 const ROWS        = 8;       // movements listed per board
 const SHOW_SEATS  = false;   // true = seat availability on departures, false = tour length
@@ -381,7 +390,7 @@ const dials = CLOCKS.map((c, i) => {
   const ctry = document.createElement('div'); ctry.className = 'country'; ctry.textContent = c.country || '';
   const read = document.createElement('div'); read.className = 'readout'; read.textContent = '--:--';
   wrap.append(disc, name, ctry, read);
-  $('row').appendChild(wrap);
+  $(i < CLOCKS_PER_SCREEN ? 'row' : 'row2').appendChild(wrap);
   return { ...c, ...f, read, offset: 0, lastMin: -1 };
 });
 
@@ -559,7 +568,7 @@ function show(i){
     $('sc-' + x.id).classList.toggle('on', n === at);
     dots.children[n].classList.toggle('on', n === at);
   });
-  clocksVisible = s.id === 'clocks';
+  clocksVisible = s.id.startsWith('clocks');
   if (!clocksVisible) refreshBoards();      // times are fresh on every entry
   clearTimeout(timer);
   timer = setTimeout(() => show(at + 1), s.hold * 1000);
