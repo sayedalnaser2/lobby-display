@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Al-Naser Travel &amp; Tours — Lobby Display</title>
+<style>
+  /* ============================================================
+     PALETTE — taken from the Al-Naser logo
+     navy #1C3F95 · crimson #C41230 · green #47AA42
+     ============================================================ */
+  :root{
+    --paper:    #E7EBF2;
+    --paper-lo: #D2DAE8;
+    --card:     #FFFFFF;
+    --dial-hi:  #FFFFFF;
+    --dial-lo:  #F1F4FA;
+    --navy:     #1C3F95;
+    --crimson:  #C41230;
+    --green:    #2F8C2B;   /* the logo green, darkened so it reads on white */
+    --muted:    #6B7A94;
+    --rule:     rgba(28,63,149,.13);
+
+    --face: clamp(54px, min(10.5vw, 17.5vh), 190px);
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+
+  body{
+    background: radial-gradient(135% 100% at 50% 30%, var(--paper) 0%, var(--paper-lo) 100%);
+    color: var(--navy);
+    font-family: Optima, "Avenir Next", Avenir, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column;
+    padding: clamp(14px, 3vh, 40px) clamp(16px, 3vw, 56px) clamp(10px, 2vh, 26px);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.idle{ cursor: none; }
+
+  /* ---------- masthead ---------- */
+  .mark{
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    min-height: clamp(34px, 7.5vh, 88px);
+  }
+  .mark img{
+    max-height: clamp(34px, 7.5vh, 88px);
+    max-width: min(46vw, 540px);
+    width: auto; object-fit: contain; display: block;
+  }
+  .mark .wordmark{
+    font-size: clamp(14px, 2vh, 24px); font-weight: 600;
+    letter-spacing: .3em; text-indent: .3em; color: var(--navy);
+  }
+
+  /* ---------- scene stage ---------- */
+  .stage{ position: relative; flex: 1 1 auto; min-height: 0; }
+  .scene{
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    opacity: 0; pointer-events: none;
+    transition: opacity .7s ease;
+  }
+  .scene.on{ opacity: 1; pointer-events: auto; }
+
+  /* ---------- scene 1: clocks ---------- */
+  .row{
+    flex: 1 1 auto; min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0,1fr));
+    align-content: center; justify-items: center;
+    gap: clamp(12px,2.4vh,34px) clamp(4px,.9vw,18px);
+    width: 100%;
+  }
+  .clock{ display:flex; flex-direction:column; align-items:center;
+          text-align:center; max-width:100%; }
+
+  /* the shadow sits on a wrapper, not on the SVG — an SVG filter would
+     force the whole dial to re-rasterise on every frame of the sweep */
+  .dial{
+    border-radius: 50%; line-height: 0;
+    box-shadow: 0 12px 30px rgba(28,63,149,.18), 0 2px 6px rgba(28,63,149,.10);
+  }
+  .clock svg{ width: var(--face); height: var(--face); display:block; }
+
+  .rim      { fill:none; stroke:var(--navy); stroke-opacity:.30; stroke-width:1; }
+  .edge     { fill:none; stroke:var(--navy); stroke-opacity:.10; stroke-width:1.2; }
+  .baton    { fill:var(--navy); fill-opacity:.85; }
+  .baton.qtr{ fill-opacity:1; }
+  .tick     { fill:var(--navy); fill-opacity:.30; }
+  .h-hand,
+  .m-hand   { fill:var(--navy); }
+  .s-hand   { fill:var(--crimson); }
+  .cap      { fill:var(--crimson); }
+  .cap-in   { fill:var(--dial-hi); }
+
+  /* two lines are reserved for every name so the dials stay on one baseline
+     even where a name is long enough to break */
+  .city{ font-size: clamp(9px,1.45vh,20px); font-weight:500;
+         letter-spacing:.06em; line-height:1.18; white-space:pre-line;
+         display:flex; align-items:center; min-height:2.36em;
+         margin-top: clamp(6px,1.1vh,15px); }
+  .country{ font-size: clamp(7px,1vh,13px); color:var(--muted);
+            letter-spacing:.1em; line-height:1.1; margin-top:.2em; }
+  .readout{ font-size: clamp(9px,1.2vh,17px); letter-spacing:.14em; text-indent:.14em;
+            color:var(--navy); opacity:.72; font-variant-numeric:tabular-nums;
+            line-height:1; margin-top: clamp(4px,.7vh,10px); }
+
+  /* ---------- scenes 2 & 3: the boards ---------- */
+  .board-head{
+    flex: 0 0 auto;
+    display:flex; align-items:baseline; gap: clamp(10px,1.6vw,26px);
+    padding: clamp(4px,1vh,14px) 0 clamp(6px,1.2vh,16px);
+  }
+  .board-head h2{
+    font-size: clamp(15px,2.6vh,34px); font-weight:600;
+    letter-spacing:.2em; text-indent:.2em;
+  }
+  .board-head .note{
+    font-size: clamp(10px,1.4vh,18px); color:var(--muted);
+    letter-spacing:.08em;
+  }
+  .board-head .note b{ color: var(--crimson); font-weight:600; }
+
+  .board{
+    flex: 1 1 auto; min-height: 0;
+    display: grid;
+    grid-template-columns: max-content minmax(0,1fr) max-content max-content max-content;
+    align-content: start;
+    background: var(--card);
+    border-radius: 3px;
+    box-shadow: 0 10px 26px rgba(28,63,149,.13);
+    overflow: hidden;
+  }
+
+  .board > *{
+    display: flex; align-items: center;
+    padding: 0 clamp(8px,1.4vw,26px);
+    border-bottom: 1px solid var(--rule);
+    min-width: 0;
+  }
+  .board > .hd{
+    font-size: clamp(8px,1.05vh,13px); color: var(--muted);
+    letter-spacing:.2em; text-indent:.2em;
+    padding-top: clamp(6px,1.1vh,14px); padding-bottom: clamp(6px,1.1vh,14px);
+    border-bottom-color: rgba(28,63,149,.22);
+  }
+  .board > .cell{ padding-top: clamp(5px,.9vh,13px); padding-bottom: clamp(5px,.9vh,13px); }
+
+  /* a today row: crimson edge on the time cell, faint wash across */
+  .board > .cell.today{ background: rgba(196,18,48,.055); }
+  .board > .cell.today.c-time{ box-shadow: inset 3px 0 0 var(--crimson); }
+  .board > .cell.gone{ opacity: .42; }
+
+  .c-time{ font-size: clamp(14px,2.3vh,31px); font-weight:600;
+           font-variant-numeric: tabular-nums; letter-spacing:.02em; }
+  .cell.today .c-time-v{ color: var(--crimson); }
+
+  .place{ display:flex; align-items:baseline; gap:.55em; min-width:0; }
+  .place b{ font-size: clamp(13px,2.1vh,29px); font-weight:500; letter-spacing:.05em;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .place i{ font-style:normal; font-size: clamp(9px,1.2vh,16px); color:var(--muted);
+            letter-spacing:.09em; white-space:nowrap; }
+
+  .c-flight{ font-size: clamp(11px,1.6vh,22px); font-variant-numeric: tabular-nums;
+             letter-spacing:.06em; white-space:nowrap; }
+  .c-when{ font-size: clamp(10px,1.45vh,20px); letter-spacing:.09em; white-space:nowrap; }
+  .c-when .chip{ color: var(--crimson); font-weight:600; letter-spacing:.16em; }
+  .c-when .off{ color: var(--muted); letter-spacing:.14em; }
+
+  .c-seats{ font-size: clamp(10px,1.4vh,19px); letter-spacing:.08em; white-space:nowrap;
+            justify-content:flex-end; }
+  .c-seats .free{ color: var(--green); font-weight:600; }
+  .c-seats .full{ color: var(--muted); }
+
+  .board .empty{
+    grid-column: 1 / -1; justify-content:center; border-bottom:none;
+    color: var(--muted); font-size: clamp(11px,1.6vh,20px); letter-spacing:.12em;
+    padding: clamp(20px,5vh,60px) 0;
+  }
+
+  /* ---------- footer ---------- */
+  .foot{
+    flex: 0 0 auto;
+    display:flex; align-items:center; justify-content:center; position:relative;
+    padding-top: clamp(6px,1.2vh,16px);
+    font-size: clamp(9px,1.25vh,16px); letter-spacing:.22em; text-indent:.22em;
+    color: var(--muted);
+  }
+  .dots{ position:absolute; right:0; display:flex; gap:7px; }
+  .dots span{
+    width:6px; height:6px; border-radius:50%;
+    background: var(--navy); opacity:.22; transition: opacity .4s ease;
+  }
+  .dots span.on{ opacity:.9; }
+
+  .hint{
+    position: fixed; inset: auto 0 clamp(8px,1.6vh,20px) 0; text-align:center;
+    font-size:12px; letter-spacing:.16em; text-indent:.16em; color:var(--muted);
+    opacity:.8; transition: opacity .9s ease; pointer-events:none;
+  }
+  .hint.gone{ opacity:0; }
+
+  /* one orchestrated moment: hands settle into place on load */
+  .h-hand, .m-hand, .s-hand{ transition: transform 1.15s cubic-bezier(.22,.9,.26,1); }
+  body.running .h-hand,
+  body.running .m-hand,
+  body.running .s-hand{ transition:none; }
+
+  @media (prefers-reduced-motion: reduce){
+    .h-hand,.m-hand,.s-hand{ transition:none; }
+    .scene{ transition:none; }
+  }
+
+  @media (max-width: 1280px){
+    :root{ --face: clamp(54px, min(14vw, 15vh), 150px); }
+    .row{ grid-template-columns: repeat(5, minmax(0,1fr)); }
+  }
+  @media (max-width: 860px){
+    :root{ --face: clamp(52px, min(17vw, 13vh), 128px); }
+    .row{ grid-template-columns: repeat(4, minmax(0,1fr)); }
+    .c-flight, .board > .hd.h-flight{ display:none; }
+  }
+  @media (max-width: 560px){
+    :root{ --face: clamp(48px, 22vw, 108px); }
+    .row{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+  }
+</style>
+</head>
+<body>
+
+  <div class="mark" id="mark"></div>
+
+  <div class="stage">
+    <section class="scene" id="sc-clocks"><div class="row" id="row"></div></section>
+
+    <section class="scene" id="sc-departures">
+      <div class="board-head"><h2>DEPARTURES</h2><div class="note" id="note-dep"></div></div>
+      <div class="board" id="board-dep"></div>
+    </section>
+
+    <section class="scene" id="sc-arrivals">
+      <div class="board-head"><h2>ARRIVALS</h2><div class="note" id="note-arr"></div></div>
+      <div class="board" id="board-arr"></div>
+    </section>
+  </div>
+
+  <div class="foot"><span id="date"></span><span class="dots" id="dots"></span></div>
+  <p class="hint" id="hint">Press F for fullscreen</p>
+
+<script>
+/* ==================================================================
+   SETTINGS — everything you'd want to change lives in this block.
+   ================================================================== */
+
+/* every destination Al-Naser flies to, ordered west to east by clock.
+   Use \n in a name to choose where it breaks onto a second line. */
+const CLOCKS = [
+  { label: 'Sarajevo',                  country: 'Bosnia & Herzegovina', zone: 'Europe/Sarajevo'   },
+  { label: 'Manama',                    country: 'Bahrain',              zone: 'Asia/Bahrain'      },
+  { label: 'Al Madinah\nAl Munawwarah', country: 'Saudi Arabia',         zone: 'Asia/Riyadh'       },
+  { label: 'Doha',                      country: 'Qatar',                zone: 'Asia/Qatar'        },
+  { label: 'Istanbul',                  country: 'Türkiye',              zone: 'Europe/Istanbul'   },
+  { label: 'Trabzon',                   country: 'Türkiye',              zone: 'Europe/Istanbul'   },
+  { label: 'Moscow',                    country: 'Russia',               zone: 'Europe/Moscow'     },
+  { label: 'Baku',                      country: 'Azerbaijan',           zone: 'Asia/Baku'         },
+  { label: 'Tbilisi',                   country: 'Georgia',              zone: 'Asia/Tbilisi'      },
+  { label: 'Almaty',                    country: 'Kazakhstan',           zone: 'Asia/Almaty'       },
+  { label: 'Colombo',                   country: 'Sri Lanka',            zone: 'Asia/Colombo'      },
+  { label: 'Bangkok',                   country: 'Thailand',             zone: 'Asia/Bangkok'      },
+  { label: 'Phuket',                    country: 'Thailand',             zone: 'Asia/Bangkok'      },
+  { label: 'Kuala Lumpur',              country: 'Malaysia',             zone: 'Asia/Kuala_Lumpur' },
+];
+
+// how long each screen stays up, in seconds
+const SCENES = [
+  { id: 'clocks',     hold: 18 },
+  { id: 'departures', hold: 22 },
+  { id: 'arrivals',   hold: 22 },
+];
+
+const ROWS        = 8;       // movements listed per board
+const SHOW_SEATS  = false;   // true = seat availability on departures, false = tour length
+const KEEP_GONE   = 90;      // minutes a departed/landed flight stays on the board
+const HOME_ZONE   = 'Asia/Bahrain';
+const USE_24H     = true;
+const SWEEP       = true;    // smooth second hand; false = one tick per second
+const BRAND_NAME  = 'AL-NASER TRAVEL & TOURS';
+const LOGO_SRC    = 'data:image/png;base64,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';
+
+const FLIGHTS = {"departures":[{"time":"06:55","date":"2026-09-15","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":0,"total":8},{"time":"01:40","date":"2026-09-16","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 30","nights":"7","avail":0,"total":27},{"time":"01:40","date":"2026-09-16","org":"BAH","dest":"SJJ","city":"Sarajevo","via":["DXB"],"no":"FZ 30","nights":"10","avail":9,"total":25},{"time":"01:50","date":"2026-09-17","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12","nights":"7","avail":0,"total":9},{"time":"09:30","date":"2026-09-17","org":"DMM","dest":"NJF","city":"Najaf","via":[],"no":"IA 662","nights":"14","avail":9,"total":10},{"time":"18:10","date":"2026-09-17","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":18,"total":30},{"time":"06:00","date":"2026-09-18","org":"BAH","dest":"QAT","city":"Qatar","via":[],"no":"COACH","nights":"1","avail":20,"total":20},{"time":"08:35","date":"2026-09-18","org":"BAH","dest":"GYD","city":"Baku","via":["DXB"],"no":"FZ 24","nights":"7","avail":21,"total":25},{"time":"08:05","date":"2026-09-19","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":0,"total":28},{"time":"17:30","date":"2026-09-19","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":4,"total":20},{"time":"01:50","date":"2026-09-20","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"8","avail":0,"total":0},{"time":"01:40","date":"2026-09-21","org":"BAH","dest":"SJJ","city":"Sarajevo","via":["DXB"],"no":"FZ 30","nights":"7","avail":20,"total":20},{"time":"06:00","date":"2026-09-23","org":"HOF","dest":"QAT","city":"Qatar","via":[],"no":"COACH","nights":"2","avail":20,"total":20},{"time":"17:20","date":"2026-09-23","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":20,"total":20},{"time":"18:30","date":"2026-09-23","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 735","nights":"4","avail":0,"total":6},{"time":"09:30","date":"2026-09-24","org":"DMM","dest":"NJF","city":"Najaf","via":[],"no":"IA 662","nights":"7/14","avail":20,"total":20},{"time":"04:00","date":"2026-09-25","org":"BAH","dest":"QAT","city":"Qatar","via":[],"no":"COACH","nights":"1","avail":20,"total":20},{"time":"08:30","date":"2026-09-25","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 24","nights":"7","avail":9,"total":20},{"time":"18:10","date":"2026-09-25","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":30,"total":30},{"time":"08:05","date":"2026-09-26","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":12,"total":28},{"time":"17:30","date":"2026-09-26","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":18,"total":20},{"time":"06:55","date":"2026-09-29","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":27,"total":30},{"time":"08:35","date":"2026-09-29","org":"BAH","dest":"GYD","city":"Baku","via":["DXB"],"no":"FZ 24","nights":"7","avail":0,"total":0},{"time":"09:30","date":"2026-10-01","org":"DMM","dest":"NJF","city":"Najaf","via":[],"no":"IA 662","nights":"7/14","avail":20,"total":20},{"time":"10:40","date":"2026-10-01","org":"BAH","dest":"SVO","city":"Moscow","via":["AUH"],"no":"EY 642","nights":"7","avail":20,"total":20},{"time":"18:10","date":"2026-10-01","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":30,"total":30},{"time":"08:05","date":"2026-10-03","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":56,"total":60},{"time":"17:30","date":"2026-10-03","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"06:55","date":"2026-10-06","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":30,"total":30},{"time":"17:20","date":"2026-10-07","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":8,"total":10},{"time":"09:30","date":"2026-10-08","org":"DMM","dest":"NJF","city":"Najaf","via":[],"no":"IA 662","nights":"7/14","avail":20,"total":20},{"time":"10:40","date":"2026-10-08","org":"BAH","dest":"SVO","city":"Moscow","via":["AUH"],"no":"EY 642","nights":"7","avail":20,"total":20},{"time":"08:05","date":"2026-10-10","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-10-10","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"18:10","date":"2026-10-10","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":30,"total":30},{"time":"06:55","date":"2026-10-13","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":30,"total":30},{"time":"08:30","date":"2026-10-14","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 24","nights":"7","avail":18,"total":20},{"time":"17:20","date":"2026-10-14","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":10,"total":10},{"time":"08:55","date":"2026-10-16","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":0,"total":0},{"time":"08:05","date":"2026-10-17","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-10-17","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"06:55","date":"2026-10-20","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":30,"total":30},{"time":"08:35","date":"2026-10-21","org":"BAH","dest":"GYD","city":"Baku","via":["DXB"],"no":"FZ 24","nights":"7","avail":25,"total":25},{"time":"17:20","date":"2026-10-21","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":10,"total":10},{"time":"08:30","date":"2026-10-22","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 24","nights":"7","avail":20,"total":20},{"time":"08:55","date":"2026-10-23","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":0,"total":0},{"time":"08:05","date":"2026-10-24","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-10-24","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"06:55","date":"2026-10-27","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":30,"total":30},{"time":"17:20","date":"2026-10-28","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":10,"total":10},{"time":"10:40","date":"2026-10-29","org":"BAH","dest":"SVO","city":"Moscow","via":["AUH"],"no":"EY 642","nights":"7","avail":20,"total":20},{"time":"08:30","date":"2026-10-30","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 24","nights":"7","avail":20,"total":20},{"time":"08:55","date":"2026-10-30","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":0,"total":0},{"time":"18:10","date":"2026-10-30","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":30,"total":30},{"time":"08:05","date":"2026-10-31","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"08:35","date":"2026-10-31","org":"BAH","dest":"GYD","city":"Baku","via":["DXB"],"no":"FZ 24","nights":"7","avail":25,"total":25},{"time":"08:45","date":"2026-10-31","org":"BAH","dest":"GYD","city":"Baku","via":[],"no":"GF 81W","nights":"7","avail":0,"total":0},{"time":"17:30","date":"2026-10-31","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"08:05","date":"2026-11-07","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-11-07","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"08:05","date":"2026-11-14","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":30,"total":30},{"time":"17:30","date":"2026-11-14","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"08:55","date":"2026-11-17","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"04:45","date":"2026-11-20","org":"BAH","dest":"DME","city":"Moscow","via":["SHJ"],"no":"G9 108","nights":"7","avail":30,"total":30},{"time":"04:45","date":"2026-11-20","org":"BAH","dest":"ALA","city":"Almaty","via":["SHJ"],"no":"G9 108","nights":"8","avail":30,"total":30},{"time":"08:55","date":"2026-11-20","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":60,"total":60},{"time":"09:05","date":"2026-11-20","org":"BAH","dest":"TBS","city":"Tbilisi","via":["SHJ"],"no":"G9 102","nights":"8","avail":30,"total":30},{"time":"09:05","date":"2026-11-20","org":"BAH","dest":"GYD","city":"Baku","via":["SHJ"],"no":"G9 102","nights":"7","avail":30,"total":30},{"time":"17:50","date":"2026-11-20","org":"BAH","dest":"BKK","city":"Bangkok","via":["SHJ"],"no":"G9 104","nights":"7","avail":30,"total":30},{"time":"17:50","date":"2026-11-20","org":"BAH","dest":"KUL","city":"Kuala Lumpur","via":["SHJ"],"no":"G9 104","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-11-21","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-11-21","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"08:55","date":"2026-11-27","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-11-28","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-11-28","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"08:05","date":"2026-12-05","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-12-05","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"08:55","date":"2026-12-11","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-12-12","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-12-12","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"01:50","date":"2026-12-15","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2026-12-15","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2026-12-18","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-12-19","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-12-19","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"01:50","date":"2026-12-20","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2026-12-22","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2026-12-25","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-12-26","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-12-26","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"08:05","date":"2027-01-02","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"08:55","date":"2027-01-08","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":60,"total":60},{"time":"09:25","date":"2027-01-08","org":"DMM","dest":"GYD","city":"Baku","via":["SHJ"],"no":"G9 164","nights":"8","avail":30,"total":30},{"time":"17:25","date":"2027-01-08","org":"DMM","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 168","nights":"8","avail":30,"total":30},{"time":"04:45","date":"2027-01-09","org":"DMM","dest":"DME","city":"Moscow","via":["SHJ"],"no":"G9 108","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2027-01-09","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2027-01-15","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2027-01-16","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"22:45","date":"2027-01-17","org":"BAH","dest":"BKK","city":"Bangkok","via":[],"no":"GF 152N","nights":"8","avail":30,"total":30},{"time":"01:50","date":"2027-01-19","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2027-01-19","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":60,"total":60},{"time":"08:55","date":"2027-01-22","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"01:50","date":"2027-01-23","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2027-01-23","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2027-01-30","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60}],"arrivals":[{"time":"11:30","date":"2026-09-19","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"03:00","date":"2026-09-20","org":"QAT","city":"Qatar","dest":"BAH","via":[],"no":"COACH","nights":"1"},{"time":"00:40","date":"2026-09-24","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 29","nights":"7"},{"time":"19:25","date":"2026-09-24","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13","nights":"7"},{"time":"08:15","date":"2026-09-25","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"17:30","date":"2026-09-25","org":"GYD","city":"Baku","dest":"BAH","via":["DXB"],"no":"FZ 27","nights":"7"},{"time":"23:00","date":"2026-09-25","org":"QAT","city":"Qatar","dest":"HOF","via":[],"no":"COACH","nights":"2"},{"time":"07:05","date":"2026-09-26","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-09-26","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"00:40","date":"2026-09-27","org":"SJJ","city":"Sarajevo","dest":"BAH","via":["DXB"],"no":"FZ 29","nights":"10"},{"time":"03:00","date":"2026-09-27","org":"QAT","city":"Qatar","dest":"BAH","via":[],"no":"COACH","nights":"1"},{"time":"20:00","date":"2026-09-27","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 706","nights":"4"},{"time":"19:25","date":"2026-09-28","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"8"},{"time":"00:40","date":"2026-09-29","org":"SJJ","city":"Sarajevo","dest":"BAH","via":["DXB"],"no":"FZ 29","nights":"7"},{"time":"17:00","date":"2026-10-01","org":"BGW","city":"Baghdad","dest":"DMM","via":[],"no":"IA 6613","nights":"7/14"},{"time":"20:35","date":"2026-10-02","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 25","nights":"7"},{"time":"20:45","date":"2026-10-02","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-10-03","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"08:15","date":"2026-10-03","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"11:30","date":"2026-10-03","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-03","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:30","date":"2026-10-06","org":"GYD","city":"Baku","dest":"BAH","via":["DXB"],"no":"FZ 27","nights":"7"},{"time":"17:00","date":"2026-10-08","org":"BGW","city":"Baghdad","dest":"DMM","via":[],"no":"IA 6613","nights":"7/14"},{"time":"20:45","date":"2026-10-08","org":"SVO","city":"Moscow","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"7"},{"time":"08:15","date":"2026-10-09","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"07:05","date":"2026-10-10","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"11:30","date":"2026-10-10","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-10","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:00","date":"2026-10-15","org":"BGW","city":"Baghdad","dest":"DMM","via":[],"no":"IA 6613","nights":"7/14"},{"time":"20:45","date":"2026-10-15","org":"SVO","city":"Moscow","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"7"},{"time":"20:45","date":"2026-10-16","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-10-17","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"11:30","date":"2026-10-17","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-17","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"08:15","date":"2026-10-18","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"20:35","date":"2026-10-21","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 25","nights":"7"},{"time":"17:00","date":"2026-10-22","org":"BGW","city":"Baghdad","dest":"DMM","via":[],"no":"IA 6613","nights":"14"},{"time":"07:55","date":"2026-10-23","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"20:45","date":"2026-10-23","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-10-24","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"11:30","date":"2026-10-24","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-24","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:30","date":"2026-10-28","org":"GYD","city":"Baku","dest":"BAH","via":["DXB"],"no":"FZ 27","nights":"7"},{"time":"20:35","date":"2026-10-29","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 25","nights":"7"},{"time":"07:55","date":"2026-10-30","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"20:45","date":"2026-10-30","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-10-31","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"11:30","date":"2026-10-31","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-31","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"20:45","date":"2026-11-05","org":"SVO","city":"Moscow","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"7"},{"time":"07:55","date":"2026-11-06","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"20:35","date":"2026-11-06","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 25","nights":"7"},{"time":"20:45","date":"2026-11-06","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-11-07","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"08:15","date":"2026-11-07","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"16:30","date":"2026-11-07","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:30","date":"2026-11-07","org":"GYD","city":"Baku","dest":"BAH","via":["DXB"],"no":"FZ 27","nights":"7"},{"time":"19:20","date":"2026-11-07","org":"GYD","city":"Baku","dest":"BAH","via":[],"no":"GF 82W","nights":"7"},{"time":"07:05","date":"2026-11-14","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-11-14","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:05","date":"2026-11-21","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-11-21","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2026-11-24","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:55","date":"2026-11-27","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"17:10","date":"2026-11-27","org":"GYD","city":"Baku","dest":"BAH","via":["SHJ"],"no":"G9 103","nights":"7"},{"time":"07:05","date":"2026-11-28","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"08:25","date":"2026-11-28","org":"DME","city":"Moscow","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"7"},{"time":"16:30","date":"2026-11-28","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:10","date":"2026-11-28","org":"HKT","city":"Phuket","dest":"BAH","via":["SHJ"],"no":"G9 103","nights":"7"},{"time":"17:10","date":"2026-11-28","org":"KUL","city":"Kuala Lumpur","dest":"BAH","via":["SHJ"],"no":"G9 103","nights":"7"},{"time":"18:30","date":"2026-11-28","org":"TBS","city":"Tbilisi","dest":"BAH","via":["AUH"],"no":"3L 17","nights":"8"},{"time":"20:10","date":"2026-11-28","org":"ALA","city":"Almaty","dest":"BAH","via":["SHJ"],"no":"G9 105","nights":"8"},{"time":"07:55","date":"2026-12-04","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:05","date":"2026-12-05","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-12-05","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:05","date":"2026-12-12","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-12-12","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2026-12-18","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:05","date":"2026-12-19","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-12-19","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2026-12-22","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"19:25","date":"2026-12-22","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"7"},{"time":"07:55","date":"2026-12-25","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:05","date":"2026-12-26","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-12-26","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"19:25","date":"2026-12-27","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"7"},{"time":"07:55","date":"2026-12-29","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:55","date":"2027-01-01","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:05","date":"2027-01-02","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2027-01-02","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"16:30","date":"2027-01-09","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2027-01-15","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"08:45","date":"2027-01-16","org":"CMB","city":"Colombo","dest":"DMM","via":["SHJ"],"no":"G9 163","nights":"8"},{"time":"16:30","date":"2027-01-16","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"16:45","date":"2027-01-16","org":"GYD","city":"Baku","dest":"DMM","via":["SHJ"],"no":"G9 167","nights":"8"},{"time":"08:25","date":"2027-01-17","org":"DME","city":"Moscow","dest":"DMM","via":["SHJ"],"no":"G9 101","nights":"7"},{"time":"07:55","date":"2027-01-22","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"16:30","date":"2027-01-23","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2027-01-26","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"19:25","date":"2027-01-26","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"7"},{"time":"22:55","date":"2027-01-26","org":"BKK","city":"Bangkok","dest":"BAH","via":[],"no":"GF 153N","nights":"8"},{"time":"07:55","date":"2027-01-29","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"16:30","date":"2027-01-30","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"19:25","date":"2027-01-30","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"7"},{"time":"16:30","date":"2027-02-06","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"}]};
+
+/* ================= nothing below needs editing ==================== */
+
+const NS = 'http://www.w3.org/2000/svg';
+const $  = id => document.getElementById(id);
+const el = (n, a) => { const e = document.createElementNS(NS, n);
+                       for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+/* ---- logo, with a text wordmark as fallback ---- */
+const mark = $('mark');
+const img  = new Image();
+img.alt = BRAND_NAME;
+img.onload  = () => mark.appendChild(img);
+img.onerror = () => { const w = document.createElement('div');
+                      w.className = 'wordmark'; w.textContent = BRAND_NAME;
+                      mark.appendChild(w); };
+img.src = LOGO_SRC;
+
+/* ================= scene 1 — the clocks ========================== */
+
+function face(id){
+  const svg  = el('svg', { viewBox:'0 0 200 200' });
+  const defs = el('defs');
+  const grad = el('radialGradient', { id, cx:'50%', cy:'32%', r:'78%' });
+  const a = el('stop', { offset:'0%'   }); a.style.stopColor = 'var(--dial-hi)';
+  const b = el('stop', { offset:'100%' }); b.style.stopColor = 'var(--dial-lo)';
+  grad.append(a, b); defs.appendChild(grad); svg.appendChild(defs);
+
+  svg.appendChild(el('circle', { class:'rim',  cx:100, cy:100, r:97 }));
+  svg.appendChild(el('circle', { cx:100, cy:100, r:93.5, fill:`url(#${id})` }));
+  svg.appendChild(el('circle', { class:'edge', cx:100, cy:100, r:93.5 }));
+
+  for (let i = 0; i < 60; i++){
+    const rot = `rotate(${i*6} 100 100)`;
+    if (i % 5 === 0){
+      const q = i % 15 === 0;
+      svg.appendChild(el('rect', { class: q ? 'baton qtr' : 'baton',
+        x: 100 - (q?1.7:1.1), y: q?66:70, width: q?3.4:2.2, height: q?16:12,
+        rx:1, transform:rot }));
+    } else {
+      svg.appendChild(el('rect', { class:'tick', x:99.75, y:80.5,
+        width:.5, height:3.6, transform:rot }));
+    }
+  }
+
+  const hour   = el('polygon', { class:'h-hand', points:'100,50 102.3,99 100,113 97.7,99' });
+  const minute = el('polygon', { class:'m-hand', points:'100,27 101.7,99 100,115 98.3,99' });
+  const second = el('g', { class:'s-hand' });
+  second.appendChild(el('rect',   { x:99.6, y:24, width:.8, height:92 }));
+  second.appendChild(el('circle', { cx:100, cy:114, r:3.4 }));
+
+  svg.append(hour, minute, second);
+  svg.appendChild(el('circle', { class:'cap',    cx:100, cy:100, r:4.2 }));
+  svg.appendChild(el('circle', { class:'cap-in', cx:100, cy:100, r:1.5 }));
+  return { svg, hour, minute, second };
+}
+
+const dials = CLOCKS.map((c, i) => {
+  const wrap = document.createElement('div'); wrap.className = 'clock';
+  const f = face('dial' + i);
+  const disc = document.createElement('div'); disc.className = 'dial'; disc.appendChild(f.svg);
+  const name = document.createElement('div'); name.className = 'city';    name.textContent = c.label;
+  const ctry = document.createElement('div'); ctry.className = 'country'; ctry.textContent = c.country || '';
+  const read = document.createElement('div'); read.className = 'readout'; read.textContent = '--:--';
+  wrap.append(disc, name, ctry, read);
+  $('row').appendChild(wrap);
+  return { ...c, ...f, read, offset: 0, lastMin: -1 };
+});
+
+/* each zone's offset from UTC — picks up daylight saving automatically */
+function offsetOf(zone, when){
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit' }).formatToParts(when);
+  const g = t => +p.find(x => x.type === t).value;
+  return Date.UTC(g('year'), g('month')-1, g('day'), g('hour')%24, g('minute'), g('second'))
+       - Math.floor(when.getTime()/1000)*1000;
+}
+function refreshOffsets(){
+  const now = new Date();
+  dials.forEach(d => { d.offset = offsetOf(d.zone, now); });
+}
+refreshOffsets();
+setInterval(refreshOffsets, 30000);
+
+let clocksVisible = true;
+
+function tick(){
+  if (clocksVisible){
+    const now = Date.now();
+    for (const d of dials){
+      const t   = new Date(now + d.offset);
+      const sec = t.getUTCSeconds();
+      const s   = sec + (SWEEP ? t.getUTCMilliseconds()/1000 : 0);
+      d.second.setAttribute('transform', `rotate(${s*6} 100 100)`);
+
+      // hour and minute hands only move once a minute — across fourteen dials
+      // that is the difference between a smooth sweep and a stuttering one
+      const mm = t.getUTCMinutes();
+      if (mm !== d.lastMin){
+        d.lastMin = mm;
+        const hh = t.getUTCHours();
+        const m  = mm + sec/60, h = hh + m/60;
+        d.minute.setAttribute('transform', `rotate(${m*6} 100 100)`);
+        d.hour  .setAttribute('transform', `rotate(${h*30} 100 100)`);
+        d.read.textContent = USE_24H
+          ? String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0')
+          : (hh%12||12) + ':' + String(mm).padStart(2,'0') + (hh<12?' am':' pm');
+      }
+    }
+  }
+  if (SWEEP) requestAnimationFrame(tick); else setTimeout(tick, 250);
+}
+tick();
+requestAnimationFrame(() =>
+  requestAnimationFrame(() => document.body.classList.add('running')));
+
+/* ================= scenes 2 & 3 — the boards ===================== */
+
+/* "now" and "today" as they are at the counter in Bahrain, not on the
+   machine driving the screen — the two can differ if the player's
+   own time zone is set wrong. */
+function homeParts(){
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: HOME_ZONE, hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit' }).formatToParts(new Date());
+  const g = t => p.find(x => x.type === t).value;
+  return { key: `${g('year')}-${g('month')}-${g('day')}`,
+           mins: (+g('hour') % 24) * 60 + (+g('minute')) };
+}
+
+const WEEK  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTH = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function prettyDate(key){
+  const [y,m,d] = key.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  return `${WEEK[dt.getUTCDay()]} ${d} ${MONTH[m-1]}`;
+}
+const toMins = t => (+t.slice(0,2)) * 60 + (+t.slice(3,5));
+
+function upcoming(list){
+  const { key, mins } = homeParts();
+  return list.filter(f => {
+    if (f.date > key) return true;
+    if (f.date < key) return false;
+    return toMins(f.time) >= mins - KEEP_GONE;
+  }).slice(0, ROWS).map(f => ({
+    ...f,
+    today: f.date === key,
+    gone:  f.date === key && toMins(f.time) < mins,
+  }));
+}
+
+function cell(cls, html){
+  const d = document.createElement('div');
+  d.className = 'cell ' + cls;
+  d.innerHTML = html;
+  return d;
+}
+
+function drawBoard(target, list, kind){
+  const board = $(target);
+  board.textContent = '';
+  const arriving = kind === 'arrivals';
+
+  const heads = ['TIME', arriving ? 'FROM' : 'DESTINATION', 'FLIGHT',
+                 'DATE', (arriving || !SHOW_SEATS) ? 'NIGHTS' : 'SEATS'];
+  heads.forEach((h, i) => {
+    const d = document.createElement('div');
+    d.className = 'hd' + (i === 2 ? ' h-flight' : '');
+    if (i === 4) d.style.justifyContent = 'flex-end';
+    d.textContent = h;
+    board.appendChild(d);
+  });
+
+  const rows = upcoming(list);
+  if (!rows.length){
+    const e = document.createElement('div');
+    e.className = 'cell empty';
+    e.textContent = arriving ? 'No groups returning in this period'
+                             : 'No departures scheduled in this period';
+    board.appendChild(e);
+    return;
+  }
+
+  for (const f of rows){
+    const flag = (f.today ? ' today' : '') + (f.gone ? ' gone' : '');
+    const via  = f.via && f.via.length ? `<i>via ${f.via.join(' · ')}</i>` : '';
+    const port = arriving
+      ? (f.dest !== 'BAH' ? `<i>into ${f.dest}</i>` : '')
+      : (f.org  !== 'BAH' ? `<i>from ${f.org}</i>`  : '');
+
+    board.append(
+      cell('c-time' + flag, `<span class="c-time-v">${f.time}</span>`),
+      cell('c-place' + flag, `<span class="place"><b>${f.city}</b>${via}${port}</span>`),
+      cell('c-flight' + flag, f.no),
+      cell('c-when' + flag,
+        f.gone  ? `<span class="off">${arriving ? 'LANDED' : 'DEPARTED'}</span>`
+      : f.today ? `<span class="chip">TODAY</span>`
+                : prettyDate(f.date)),
+      cell('c-seats' + flag,
+        (arriving || !SHOW_SEATS) ? `${f.nights}N`
+      : f.avail === null || f.avail === undefined ? ''
+      : f.avail > 0 ? `<span class="free">${f.avail} free</span>`
+                    : `<span class="full">Full</span>`)
+    );
+  }
+}
+
+function todayNote(list, kind){
+  const { key } = homeParts();
+  const n = list.filter(f => f.date === key).length;
+  if (n) return `<b>${n}</b> ${kind === 'arrivals'
+    ? (n === 1 ? 'group returns today' : 'groups return today')
+    : (n === 1 ? 'departure today'     : 'departures today')}`;
+  const next = upcoming(list)[0];
+  return next ? `Next ${kind === 'arrivals' ? 'arrival' : 'departure'} ${prettyDate(next.date)}`
+              : '';
+}
+
+function refreshBoards(){
+  drawBoard('board-dep', FLIGHTS.departures, 'departures');
+  drawBoard('board-arr', FLIGHTS.arrivals,   'arrivals');
+  $('note-dep').innerHTML = todayNote(FLIGHTS.departures, 'departures');
+  $('note-arr').innerHTML = todayNote(FLIGHTS.arrivals,   'arrivals');
+}
+refreshBoards();
+setInterval(refreshBoards, 60000);
+
+/* ================= rotation between the three screens ============ */
+
+const dots = $('dots');
+SCENES.forEach(() => dots.appendChild(document.createElement('span')));
+
+let at = 0, timer;
+function show(i){
+  at = ((i % SCENES.length) + SCENES.length) % SCENES.length;
+  const s = SCENES[at];
+  SCENES.forEach((x, n) => {
+    $('sc-' + x.id).classList.toggle('on', n === at);
+    dots.children[n].classList.toggle('on', n === at);
+  });
+  clocksVisible = s.id === 'clocks';
+  if (!clocksVisible) refreshBoards();      // times are fresh on every entry
+  clearTimeout(timer);
+  timer = setTimeout(() => show(at + 1), s.hold * 1000);
+}
+show(0);
+
+/* ---- the date line along the bottom ---- */
+function stampDate(){
+  $('date').textContent = new Intl.DateTimeFormat('en-GB', { timeZone: HOME_ZONE,
+    weekday:'long', day:'numeric', month:'long', year:'numeric' }).format(new Date());
+}
+stampDate();
+setInterval(stampDate, 60000);
+
+/* ---- fullscreen, manual paging, idle cursor, keep-awake ---- */
+const hint = $('hint');
+setTimeout(() => hint.classList.add('gone'), 6000);
+
+function toggleFullscreen(){
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+  if (e.key === 'ArrowRight') show(at + 1);
+  if (e.key === 'ArrowLeft')  show(at - 1);
+});
+document.addEventListener('dblclick', toggleFullscreen);
+
+let idleTimer;
+function stirred(){
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), 3000);
+}
+['mousemove','mousedown','keydown','touchstart'].forEach(ev =>
+  document.addEventListener(ev, stirred));
+stirred();
+
+async function keepAwake(){
+  try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }
+  catch (_) {}
+}
+keepAwake();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') keepAwake();
+});
+</script>
+</body>
+</html>
