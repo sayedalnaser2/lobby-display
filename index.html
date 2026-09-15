@@ -21,7 +21,7 @@
     --muted:    #6B7A94;
     --rule:     rgba(28,63,149,.13);
 
-    --face: clamp(54px, min(10.5vw, 17.5vh), 190px);
+    --face: clamp(54px, min(9.5vw, 13.5vh), 168px);
   }
 
   *{ box-sizing:border-box; margin:0; padding:0; }
@@ -81,9 +81,9 @@
   .row{
     flex: 1 1 auto; min-height: 0;
     display: grid;
-    grid-template-columns: repeat(7, minmax(0,1fr));
+    grid-template-columns: repeat(5, minmax(0,1fr));
     align-content: center; justify-items: center;
-    gap: clamp(12px,2.4vh,34px) clamp(4px,.9vw,18px);
+    gap: clamp(10px,1.8vh,26px) clamp(6px,1.2vw,26px);
     width: 100%;
   }
   .clock{ display:flex; flex-direction:column; align-items:center;
@@ -110,15 +110,15 @@
 
   /* two lines are reserved for every name so the dials stay on one baseline
      even where a name is long enough to break */
-  .city{ font-size: clamp(9px,1.45vh,20px); font-weight:500;
-         letter-spacing:.06em; line-height:1.18; white-space:pre-line;
+  .city{ font-size: clamp(12px,1.95vh,27px); font-weight:600;
+         letter-spacing:.05em; line-height:1.18; white-space:pre-line;
          display:flex; align-items:center; min-height:2.36em;
          margin-top: clamp(6px,1.1vh,15px); }
-  .country{ font-size: clamp(7px,1vh,13px); color:var(--muted);
-            letter-spacing:.1em; line-height:1.1; margin-top:.2em; }
-  .readout{ font-size: clamp(9px,1.2vh,17px); letter-spacing:.14em; text-indent:.14em;
-            color:var(--navy); opacity:.72; font-variant-numeric:tabular-nums;
-            line-height:1; margin-top: clamp(4px,.7vh,10px); }
+  .country{ font-size: clamp(9px,1.35vh,18px); color:var(--muted);
+            letter-spacing:.09em; line-height:1.15; margin-top:.25em; }
+  .readout{ font-size: clamp(12px,1.65vh,24px); letter-spacing:.12em; text-indent:.12em;
+            color:var(--navy); opacity:.78; font-variant-numeric:tabular-nums;
+            line-height:1; margin-top: clamp(5px,.8vh,12px); }
 
   /* ---------- scenes 2 & 3: the boards ---------- */
   .board-head{
@@ -227,16 +227,16 @@
   }
 
   @media (max-width: 1280px){
-    :root{ --face: clamp(54px, min(14vw, 15vh), 150px); }
+    :root{ --face: clamp(54px, min(11vw, 12.5vh), 136px); }
     .row{ grid-template-columns: repeat(5, minmax(0,1fr)); }
   }
   @media (max-width: 860px){
-    :root{ --face: clamp(52px, min(17vw, 13vh), 128px); }
-    .row{ grid-template-columns: repeat(4, minmax(0,1fr)); }
+    :root{ --face: clamp(52px, min(17vw, 12vh), 120px); }
+    .row{ grid-template-columns: repeat(3, minmax(0,1fr)); }
     .c-flight, .board > .hd.h-flight{ display:none; }
   }
   @media (max-width: 560px){
-    :root{ --face: clamp(48px, 22vw, 108px); }
+    :root{ --face: clamp(48px, 22vw, 104px); }
     .row{ grid-template-columns: repeat(3, minmax(0,1fr)); }
   }
 </style>
@@ -270,6 +270,7 @@
 /* every destination Al-Naser flies to, ordered west to east by clock.
    Use \n in a name to choose where it breaks onto a second line. */
 const CLOCKS = [
+  { label: 'Paris',                     country: 'France',               zone: 'Europe/Paris'      },
   { label: 'Sarajevo',                  country: 'Bosnia & Herzegovina', zone: 'Europe/Sarajevo'   },
   { label: 'Manama',                    country: 'Bahrain',              zone: 'Asia/Bahrain'      },
   { label: 'Al Madinah\nAl Munawwarah', country: 'Saudi Arabia',         zone: 'Asia/Riyadh'       },
