@@ -1053,8 +1053,6 @@ async function buildMap(){
                       html:`<i style="background-image:url('${PIN_SRC}')"></i>` })
   }).addTo(lmap));
   refreshFilms();
-  loadWeather();
-  setInterval(loadWeather, WX_REFRESH * 60 * 1000);
 }
 
 /* ---- the arc between two cities, and the aircraft along it ---- */
@@ -1392,6 +1390,14 @@ $('sheetAll').addEventListener('click', e => {
 });
 sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
 sheet.addEventListener('dblclick', e => e.stopPropagation());
+
+/* the weather is asked for straight away, not when the map first opens,
+   so it is never stuck behind a few hundred map tiles */
+function pullWeather(){
+  return loadWeather().then(() => { if (wxAt >= 0) showWeather(wxAt); });
+}
+pullWeather();
+setInterval(pullWeather, WX_REFRESH * 60 * 1000);
 
 buildDots();
 show(0);
