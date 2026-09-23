@@ -1103,7 +1103,7 @@ const PLANE_SVG =
     '<path class="pl-trim" d="M15.5 32 L11.5 30.7 L5 30.3 L4 32 L5 33.7 L11.5 33.3 Z"/>' +
   '</svg>';
 
-let planeMarker = null, trailLine = null, flightPane = false;
+let planeEl = null, trailLine = null, flightPane = false;
 function ensureFlightBits(){
   if (!flightPane){
     lmap.createPane('flight');
@@ -1115,17 +1115,21 @@ function ensureFlightBits(){
     trailLine = L.polyline([], { pane:'flight', color:'#C41230', weight:2,
       opacity:.55, dashArray:'1 7', lineCap:'round', interactive:false }).addTo(lmap);
   }
-  if (!planeMarker){
+  if (!planeEl){
+    /* a plain element we place ourselves. A Leaflet marker rounds its
+       position to whole pixels, which is what made the flight judder. */
     const size = Math.round(Math.min(96, Math.max(54, window.innerHeight * .082)));
-    planeMarker = L.marker([0,0], {
-      pane:'flight', interactive:false, keyboard:false, opacity:0,
-      icon: L.divIcon({ className:'plane', iconSize:[size,size], iconAnchor:[size/2,size/2],
-        html:`<div class="body">${PLANE_SVG}</div>` })
-    }).addTo(lmap);
+    planeEl = document.createElement('div');
+    planeEl.className = 'plane';
+    planeEl.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;'
+      + `width:${size}px;height:${size}px;margin-left:${-size/2}px;margin-top:${-size/2}px;`
+      + 'opacity:0;will-change:transform;';
+    planeEl.innerHTML = `<div class="body">${PLANE_SVG}</div>`;
+    lmap.getPane('flight').appendChild(planeEl);
   }
 }
 function clearFlight(){
-  if (planeMarker) planeMarker.setOpacity(0);
+  if (planeEl) planeEl.style.opacity = '0';
   if (trailLine) trailLine.setLatLngs([]);
 }
 
@@ -1152,10 +1156,14 @@ function runPlane(from, to, secs){
     ensureFlightBits();
     const full = greatCircle(from, to, 128);
     trailLine.setLatLngs([]);
-    planeMarker.setOpacity(1);
+    planeEl.style.opacity = '1';
 
-    const el = planeMarker.getElement();
-    const body = el && el.querySelector('.body');
+    /* the map is holding still for this phase, so we can work in exact
+       fractional pixels instead of asking Leaflet for rounded ones */
+    const zoom = lmap.getZoom(), origin = lmap.getPixelOrigin();
+    const at = ll => { const p = lmap.project(L.latLng(ll[0], ll[1]), zoom);
+                       return { x: p.x - origin.x, y: p.y - origin.y }; };
+    const body = planeEl.querySelector('.body');
     const t0 = performance.now(), ms = secs * 1000;
     const ease = t => t < .5 ? 2*t*t : 1 - (-2*t + 2)**2 / 2;
     const token = tourToken;
@@ -1167,7 +1175,8 @@ function runPlane(from, to, secs){
 
       const here  = gcAt(from, to, t);
       const ahead = gcAt(from, to, Math.min(1, t + 0.005));
-      planeMarker.setLatLng(here);
+      const a = at(here), b = at(ahead);
+      planeEl.style.transform = `translate3d(${a.x}px, ${a.y}px, 0)`;
 
       /* the dashed trail is heavy to redraw, and a few times a
          second is plenty for a dashed line */
@@ -1177,19 +1186,18 @@ function runPlane(from, to, secs){
       }
 
       if (body){
-        const p1 = lmap.latLngToLayerPoint(here), p2 = lmap.latLngToLayerPoint(ahead);
-        let ang = Math.atan2(p2.y - p1.y, p2.x - p1.x) * R2D;
+        let ang = Math.atan2(b.y - a.y, b.x - a.x) * R2D;
         if (lastAng !== null){                    // no sudden flips, and ease the turn
           while (ang - lastAng >  180) ang -= 360;
           while (ang - lastAng < -180) ang += 360;
-          ang = lastAng + (ang - lastAng) * 0.18;
+          ang = lastAng + (ang - lastAng) * 0.35;
         }
         lastAng = ang;
         body.style.transform = `rotate(${ang}deg)`;
       }
 
       if (raw < 1) requestAnimationFrame(step);
-      else { planeMarker.setOpacity(0); trailLine.setLatLngs([]); done(); }
+      else { planeEl.style.opacity = '0'; trailLine.setLatLngs([]); done(); }
     })(t0);
   });
 }
