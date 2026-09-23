@@ -614,7 +614,7 @@ const PLACES = [
 
 const VIDEO_DIR  = 'videos/';
 const PHOTO_DIR  = 'photos/';   // a landmark still, shown until a film arrives
-const MAP_FLY    = 4.6;   // seconds gliding from one country to the next
+const MAP_FLY    = 6.2;   // seconds gliding from one country to the next
 const MAP_HOLD   = 13;    // seconds each country stays on screen
 const WX_REFRESH = 15;    // minutes between weather refreshes
 
@@ -1075,6 +1075,20 @@ function greatCircle(a, b, n){
   return pts;
 }
 
+/* the exact point a fraction t along the great circle — solved
+   continuously, so the aircraft never steps between fixed positions */
+function gcAt(a, b, t){
+  const f1 = a[0]*D2R, l1 = a[1]*D2R, f2 = b[0]*D2R, l2 = b[1]*D2R;
+  const d = 2 * Math.asin(Math.sqrt(
+    Math.sin((f2-f1)/2)**2 + Math.cos(f1)*Math.cos(f2)*Math.sin((l2-l1)/2)**2));
+  if (!d || !isFinite(d)) return [b[0], b[1]];
+  const A = Math.sin((1-t)*d)/Math.sin(d), B = Math.sin(t*d)/Math.sin(d);
+  const x = A*Math.cos(f1)*Math.cos(l1) + B*Math.cos(f2)*Math.cos(l2);
+  const y = A*Math.cos(f1)*Math.sin(l1) + B*Math.cos(f2)*Math.sin(l2);
+  const z = A*Math.sin(f1) + B*Math.sin(f2);
+  return [Math.atan2(z, Math.hypot(x, y)) * R2D, Math.atan2(y, x) * R2D];
+}
+
 const PLANE_SVG =
   '<svg viewBox="0 0 64 64" aria-hidden="true">' +
     /* one silhouette: fuselage, swept wings, tailplane. Nose to the right. */
@@ -1121,42 +1135,63 @@ function clearFlight(){
 async function flyWithPlane(from, to, zoom, secs){
   if (!from) return mapFly(to, zoom, secs);
 
-  startPlane(from, to, secs);
-
   const span = L.latLngBounds([from, to]).pad(0.35);
   let wide = lmap.getBoundsZoom(span, false);
   wide = Math.max(2, Math.min(wide - 0.7, zoom - 2.6));   // always a real pull-back
-  await mapFly(span.getCenter(), wide, secs * 0.46);
-  await mapFly(to, zoom, secs * 0.54);
+
+  /* the map and the aircraft never move at the same time — that was
+     what made the flight stutter */
+  await mapFly(span.getCenter(), wide, secs * 0.32);      // climb out
+  await runPlane(from, to, secs * 0.42);                  // cruise
+  await mapFly(to, zoom, secs * 0.26);                    // descend
 }
 
 /* the aircraft runs on its own clock across the whole flight */
-function startPlane(from, to, secs){
-  ensureFlightBits();
-  const arc = greatCircle(from, to, 96);
-  trailLine.setLatLngs([]);
-  planeMarker.setOpacity(1);
+function runPlane(from, to, secs){
+  return new Promise(done => {
+    ensureFlightBits();
+    const full = greatCircle(from, to, 128);
+    trailLine.setLatLngs([]);
+    planeMarker.setOpacity(1);
 
-  const el = planeMarker.getElement();
-  const body = el && el.querySelector('.body');
-  const t0 = performance.now(), ms = secs * 1000;
-  const ease = t => t < .5 ? 2*t*t : 1 - (-2*t + 2)**2 / 2;
-  const token = tourToken;
+    const el = planeMarker.getElement();
+    const body = el && el.querySelector('.body');
+    const t0 = performance.now(), ms = secs * 1000;
+    const ease = t => t < .5 ? 2*t*t : 1 - (-2*t + 2)**2 / 2;
+    const token = tourToken;
+    let lastAng = null, lastTrail = 0;
 
-  (function step(now){
-    if (token !== tourToken){ clearFlight(); return; }
-    const t = Math.min(1, (now - t0) / ms);
-    const i = Math.min(arc.length - 2, Math.floor(ease(t) * (arc.length - 1)));
-    const here = arc[i], next = arc[i + 1];
-    planeMarker.setLatLng(here);
-    trailLine.setLatLngs(arc.slice(0, i + 1));
-    if (body){
-      const p1 = lmap.latLngToLayerPoint(here), p2 = lmap.latLngToLayerPoint(next);
-      body.style.transform = `rotate(${Math.atan2(p2.y - p1.y, p2.x - p1.x) * R2D}deg)`;
-    }
-    if (t < 1) requestAnimationFrame(step);
-    else { planeMarker.setOpacity(0); trailLine.setLatLngs([]); }
-  })(t0);
+    (function step(now){
+      if (token !== tourToken){ clearFlight(); done(); return; }
+      const raw = Math.min(1, (now - t0) / ms), t = ease(raw);
+
+      const here  = gcAt(from, to, t);
+      const ahead = gcAt(from, to, Math.min(1, t + 0.005));
+      planeMarker.setLatLng(here);
+
+      /* the dashed trail is heavy to redraw, and a few times a
+         second is plenty for a dashed line */
+      if (now - lastTrail > 90){
+        lastTrail = now;
+        trailLine.setLatLngs(full.slice(0, Math.max(2, Math.round(t * (full.length - 1)) + 1)));
+      }
+
+      if (body){
+        const p1 = lmap.latLngToLayerPoint(here), p2 = lmap.latLngToLayerPoint(ahead);
+        let ang = Math.atan2(p2.y - p1.y, p2.x - p1.x) * R2D;
+        if (lastAng !== null){                    // no sudden flips, and ease the turn
+          while (ang - lastAng >  180) ang -= 360;
+          while (ang - lastAng < -180) ang += 360;
+          ang = lastAng + (ang - lastAng) * 0.18;
+        }
+        lastAng = ang;
+        body.style.transform = `rotate(${ang}deg)`;
+      }
+
+      if (raw < 1) requestAnimationFrame(step);
+      else { planeMarker.setOpacity(0); trailLine.setLatLngs([]); done(); }
+    })(t0);
+  });
 }
 
 function mapFly(target, zoom, secs){
