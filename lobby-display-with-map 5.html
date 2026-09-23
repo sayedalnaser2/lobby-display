@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Al-Naser Travel &amp; Tours — Lobby Display</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  /* ============================================================
+     PALETTE — taken from the Al-Naser logo
+     navy #1C3F95 · crimson #C41230 · green #47AA42
+     ============================================================ */
+  :root{
+    --paper:    #E7EBF2;
+    --paper-lo: #D2DAE8;
+    --card:     #FFFFFF;
+    --dial-hi:  #FFFFFF;
+    --dial-lo:  #F1F4FA;
+    --navy:     #1C3F95;
+    --crimson:  #C41230;
+    --green:    #2F8C2B;   /* the logo green, darkened so it reads on white */
+    --muted:    #6B7A94;
+    --rule:     rgba(28,63,149,.13);
+
+    --face: clamp(72px, min(20vw, 26vh), 290px);
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+
+  body{
+    background: radial-gradient(135% 100% at 50% 30%, var(--paper) 0%, var(--paper-lo) 100%);
+    color: var(--navy);
+    font-family: Optima, "Avenir Next", Avenir, "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column;
+    padding: clamp(14px, 3vh, 40px) clamp(16px, 3vw, 56px) clamp(10px, 2vh, 26px);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.idle{ cursor: none; }
+
+  /* ---------- masthead ---------- */
+  .mark{
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    min-height: clamp(34px, 7.5vh, 88px);
+  }
+  .mark img{
+    max-height: clamp(34px, 7.5vh, 88px);
+    max-width: min(46vw, 540px);
+    width: auto; object-fit: contain; display: block;
+  }
+  .mark .wordmark{
+    font-size: clamp(14px, 2vh, 24px); font-weight: 600;
+    letter-spacing: .3em; text-indent: .3em; color: var(--navy);
+  }
+
+  /* the logo doubles as the full-screen switch */
+  .logo-btn{
+    background:none; border:0; margin:0; padding:0; font:inherit; color:inherit;
+    display:flex; align-items:center; justify-content:center; line-height:0;
+    border-radius:8px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    transition: transform .28s cubic-bezier(.22,.9,.26,1), opacity .28s ease;
+  }
+  .logo-btn:hover{ transform: scale(1.035); opacity:.9; }
+  .logo-btn:active{ transform: scale(.985); }
+  .logo-btn:focus-visible{ outline:2px solid var(--crimson); outline-offset:8px; }
+  body.idle .logo-btn{ cursor:none; }
+  @media (prefers-reduced-motion: reduce){ .logo-btn{ transition:none; } }
+
+  /* ---------- scene stage ---------- */
+  .stage{ position: relative; flex: 1 1 auto; min-height: 0; }
+  .scene{
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    opacity: 0; pointer-events: none;
+    transition: opacity .7s ease;
+  }
+  .scene.on{ opacity: 1; pointer-events: auto; }
+
+  /* ---------- scene 1: clocks ---------- */
+  .row{
+    flex: 1 1 auto; min-height: 0;
+    display: flex; flex-wrap: wrap;
+    align-content: center; justify-content: center;
+    gap: clamp(12px,2.2vh,34px) clamp(6px,1.2vw,30px);
+    width: 100%;
+    --cols: 4;
+    --colgap: clamp(6px,1.2vw,30px);
+  }
+  .clock{ display:flex; flex-direction:column; align-items:center;
+          text-align:center; min-width:0;
+          flex: 0 0 auto;
+          width: calc((100% - (var(--cols) - 1) * var(--colgap)) / var(--cols)); }
+
+  /* the shadow sits on a wrapper, not on the SVG — an SVG filter would
+     force the whole dial to re-rasterise on every frame of the sweep */
+  .dial{
+    border-radius: 50%; line-height: 0;
+    box-shadow: 0 12px 30px rgba(28,63,149,.18), 0 2px 6px rgba(28,63,149,.10);
+  }
+  .clock svg{ width: var(--face); height: var(--face); display:block; }
+
+  .rim      { fill:none; stroke:var(--navy); stroke-opacity:.30; stroke-width:1; }
+  .edge     { fill:none; stroke:var(--navy); stroke-opacity:.10; stroke-width:1.2; }
+  .baton    { fill:var(--navy); fill-opacity:.85; }
+  .baton.qtr{ fill-opacity:1; }
+  .tick     { fill:var(--navy); fill-opacity:.30; }
+  .h-hand,
+  .m-hand   { fill:var(--navy); }
+  .s-hand   { fill:var(--crimson); }
+  .cap      { fill:var(--crimson); }
+  .cap-in   { fill:var(--dial-hi); }
+
+  /* two lines are reserved for every name so the dials stay on one baseline
+     even where a name is long enough to break */
+  .city{ font-size: clamp(12px,1.95vh,27px); font-weight:600;
+         letter-spacing:.05em; line-height:1.18; white-space:pre-line;
+         display:flex; align-items:center; min-height:2.36em;
+         margin-top: clamp(6px,1.1vh,15px); }
+  .country{ font-size: clamp(9px,1.35vh,18px); color:var(--muted);
+            letter-spacing:.09em; line-height:1.15; margin-top:.25em; }
+  .readout{ font-size: clamp(12px,1.65vh,24px); letter-spacing:.12em; text-indent:.12em;
+            color:var(--navy); opacity:.78; font-variant-numeric:tabular-nums;
+            line-height:1; margin-top: clamp(5px,.8vh,12px); }
+
+  /* ---------- scenes 2 & 3: the boards ---------- */
+  .board-head{
+    flex: 0 0 auto;
+    display:flex; align-items:baseline; gap: clamp(10px,1.6vw,26px);
+    padding: clamp(4px,1vh,14px) 0 clamp(6px,1.2vh,16px);
+  }
+  .board-head h2{
+    font-size: clamp(18px,3vh,40px); font-weight:600;
+    letter-spacing:.2em; text-indent:.2em;
+  }
+  .board-head .note{
+    font-size: clamp(12px,1.7vh,23px); color:var(--muted);
+    letter-spacing:.08em;
+  }
+  .board-head .note b{ color: var(--crimson); font-weight:600; }
+
+  .board{
+    flex: 1 1 auto; min-height: 0;
+    display: grid;
+    grid-template-columns: max-content minmax(0,1fr) max-content max-content max-content;
+    align-content: start;
+    background: var(--card);
+    border-radius: 3px;
+    box-shadow: 0 10px 26px rgba(28,63,149,.13);
+    overflow: hidden;
+  }
+
+  .board > *{
+    display: flex; align-items: center;
+    padding: 0 clamp(8px,1.4vw,26px);
+    border-bottom: 1px solid var(--rule);
+    min-width: 0;
+  }
+  .board > .hd{
+    font-size: clamp(10px,1.3vh,17px); color: var(--muted);
+    letter-spacing:.18em; text-indent:.18em;
+    padding-top: clamp(6px,1.1vh,14px); padding-bottom: clamp(6px,1.1vh,14px);
+    border-bottom-color: rgba(28,63,149,.22);
+  }
+  .board > .cell{ padding-top: clamp(5px,.9vh,13px); padding-bottom: clamp(5px,.9vh,13px); }
+
+  /* a today row: crimson edge on the time cell, faint wash across */
+  .board > .cell.today{ background: rgba(196,18,48,.055); }
+  .board > .cell.today.c-time{ box-shadow: inset 3px 0 0 var(--crimson); }
+  .board > .cell.gone{ opacity: .42; }
+
+  .c-time{ font-size: clamp(17px,2.85vh,39px); font-weight:600;
+           font-variant-numeric: tabular-nums; letter-spacing:.02em; }
+  .cell.today .c-time-v{ color: var(--crimson); }
+
+  .place{ display:flex; align-items:baseline; gap:.55em; min-width:0; }
+  .place b{ font-size: clamp(16px,2.6vh,36px); font-weight:500; letter-spacing:.05em;
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .place i{ font-style:normal; font-size: clamp(11px,1.55vh,21px); color:var(--muted);
+            letter-spacing:.09em; white-space:nowrap; }
+
+  .c-flight{ font-size: clamp(13px,1.95vh,27px); font-variant-numeric: tabular-nums;
+             letter-spacing:.06em; white-space:nowrap; }
+  .c-when{ font-size: clamp(12px,1.8vh,25px); letter-spacing:.09em; white-space:nowrap; }
+  .c-when .chip{ color: var(--crimson); font-weight:600; letter-spacing:.16em; }
+  .c-when .off{ color: var(--muted); letter-spacing:.14em; }
+
+  .c-seats{ font-size: clamp(12px,1.75vh,24px); letter-spacing:.08em; white-space:nowrap;
+            justify-content:flex-end; }
+  .c-seats .free{ color: var(--green); font-weight:600; }
+  .c-seats .full{ color: var(--muted); }
+
+  .board .empty{
+    grid-column: 1 / -1; justify-content:center; border-bottom:none;
+    color: var(--muted); font-size: clamp(13px,1.95vh,26px); letter-spacing:.12em;
+    padding: clamp(20px,5vh,60px) 0;
+  }
+
+  /* ---------- scene 5: the destination map ---------- */
+  #sc-map{ padding:0; overflow:hidden; border-radius:3px; }
+  #map{ position:absolute; inset:0; background:var(--paper); z-index:0; }
+  .leaflet-container{ background:var(--paper); outline:none; font:inherit; }
+  .leaflet-tile-pane{ filter: brightness(1.04) contrast(.96) saturate(.85); }
+  .leaflet-control-attribution{
+    background: rgba(255,255,255,.72) !important; color: rgba(107,122,148,.8) !important;
+    font-size: 9px !important; letter-spacing:.04em; padding: 2px 7px !important;
+  }
+  .leaflet-control-attribution a{ color: var(--navy) !important; }
+  .m-vig{
+    position:absolute; inset:0; z-index:400; pointer-events:none;
+    background: radial-gradient(128% 104% at 50% 45%, rgba(242,244,248,0) 40%,
+                rgba(236,239,245,.5) 80%, rgba(227,232,241,.9) 100%);
+  }
+
+  .pin{ background:none; border:0; }
+  .pin i{
+    display:block; width:100%; height:100%; border-radius:50%;
+    background:#FFFFFF center/72% no-repeat;
+    box-shadow: 0 0 0 1.5px rgba(176,138,46,.55), 0 8px 20px rgba(28,63,149,.22);
+    transition: transform .6s cubic-bezier(.22,.9,.26,1), box-shadow .6s ease;
+  }
+  .pin.live i{
+    transform: scale(1.5);
+    box-shadow: 0 0 0 2px var(--gold), 0 0 26px 7px rgba(196,18,48,.18), 0 12px 28px rgba(28,63,149,.3);
+  }
+  .pin.live::after{
+    content:''; position:absolute; inset:-60%; border-radius:50%;
+    border:1px solid rgba(196,18,48,.45); animation: halo 2.8s ease-out infinite;
+  }
+  @keyframes halo{ 0%{ transform:scale(.45); opacity:.8; } 100%{ transform:scale(1.5); opacity:0; } }
+
+  .m-cap{
+    position:absolute; z-index:600; left: clamp(6px,1vw,22px); bottom: clamp(10px,2vh,30px);
+    max-width: min(46%, 640px);
+    opacity:0; transform: translateY(18px);
+    transition: opacity .8s ease, transform .8s cubic-bezier(.22,.9,.26,1);
+  }
+  .m-cap.on{ opacity:1; transform:none; }
+  .m-cap .kicker{
+    font-size: clamp(9px,1.15vh,15px); letter-spacing:.42em; text-indent:.42em;
+    text-transform:uppercase; color:var(--crimson); font-weight:600;
+  }
+  .m-cap h2{
+    font-size: clamp(26px,5.6vh,72px); font-weight:500; line-height:1.03;
+    margin-top: clamp(6px,1.2vh,16px); color:var(--navy);
+  }
+  .m-cap .m-rule{
+    width: clamp(40px,5vw,96px); height:1px; margin: clamp(10px,1.5vh,20px) 0;
+    background: linear-gradient(90deg, var(--gold), rgba(176,138,46,0));
+  }
+  .m-cap .m-cities{
+    font-size: clamp(11px,1.6vh,23px); font-weight:300; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--muted);
+  }
+
+  .wx{
+    display:inline-flex; align-items:center; gap: clamp(8px,1vw,15px);
+    margin-top: clamp(10px,1.6vh,22px);
+    padding: clamp(6px,1vh,13px) clamp(11px,1.3vw,20px);
+    background: rgba(255,255,255,.92); border-radius:999px;
+    box-shadow: 0 0 0 1px rgba(176,138,46,.32), 0 10px 26px rgba(28,63,149,.13);
+    opacity:0; transform: translateY(8px);
+    transition: opacity .6s ease, transform .6s cubic-bezier(.22,.9,.26,1);
+  }
+  .wx.ready{ opacity:1; transform:none; }
+  .wx svg{ width: clamp(19px,2.5vh,34px); height: clamp(19px,2.5vh,34px); display:block; flex:0 0 auto; }
+  .wx .deg{ font-size: clamp(17px,2.8vh,37px); font-weight:500; color:var(--navy);
+            font-variant-numeric:tabular-nums; line-height:1; }
+  .wx .sky{ font-size: clamp(9px,1.2vh,15px); letter-spacing:.2em; text-indent:.2em;
+            text-transform:uppercase; color:var(--muted); line-height:1; }
+  .wx .sep{ width:1px; height: clamp(17px,2.4vh,32px); background: var(--rule); }
+  .wx .clock{ display:flex; flex-direction:column; gap:.3em; }
+  .wx .clock b{ font-size: clamp(17px,2.8vh,37px); font-weight:500; color:var(--navy);
+                font-variant-numeric:tabular-nums; line-height:1; letter-spacing:.02em; }
+  .wx .clock i{ font-style:normal; font-size: clamp(8px,1.05vh,13px); letter-spacing:.24em;
+                text-indent:.24em; text-transform:uppercase; color:var(--muted); line-height:1; }
+
+  .ic-sun{ fill:#E0A21C; } .ic-cloud{ fill:#8FA2BE; } .ic-cloud2{ fill:#B9C6DA; }
+  .ic-rain{ stroke:#4E82C8; stroke-width:2.6; stroke-linecap:round; fill:none; }
+  .ic-snow{ stroke:#7FA8D8; stroke-width:2.2; stroke-linecap:round; fill:none; }
+  .ic-bolt{ fill:#E0A21C; }
+  .ic-fog{ stroke:#9AAAC2; stroke-width:2.6; stroke-linecap:round; fill:none; }
+
+  .reel{
+    position:absolute; z-index:600; top:50%; right: clamp(10px,1.8vw,44px);
+    height: min(80%, calc((100% - 2vw) * 0.42 * 16 / 9));
+    width: calc(min(80%, calc((100% - 2vw) * 0.42 * 16 / 9)) * 9 / 16);
+    transform: translate(calc(100% + 6vw), -50%); opacity:0;
+    transition: transform 1s cubic-bezier(.22,.9,.26,1), opacity .7s ease;
+    border-radius: clamp(12px,1.4vw,22px); background: var(--card);
+    box-shadow: 0 0 0 1px rgba(176,138,46,.55), 0 44px 96px rgba(28,63,149,.34),
+                0 8px 24px rgba(28,63,149,.20);
+    overflow:hidden;
+  }
+  .reel.on{ transform: translate(0,-50%); opacity:1; }
+  .reel video{ width:100%; height:100%; object-fit:cover; display:block; background:#0B1330; }
+  .reel img.shot{
+    width:100%; height:100%; object-fit:cover; display:block; background:#0B1330;
+    transform-origin:50% 45%; animation: drift 16s ease-in-out infinite alternate;
+  }
+  @keyframes drift{
+    from{ transform: scale(1.02) translate(0,0); }
+    to  { transform: scale(1.13) translate(-1.5%, -2%); }
+  }
+  .reel .label{
+    position:absolute; left:0; right:0; bottom:0; padding: 14% 9% 8%;
+    background: linear-gradient(180deg, rgba(8,14,32,0) 0%, rgba(8,14,32,.72) 62%, rgba(8,14,32,.9) 100%);
+    color:#fff; text-align:center; pointer-events:none;
+  }
+  .reel .label b{ display:block; font-size: clamp(12px,1.9vh,26px); font-weight:500;
+                  letter-spacing:.14em; text-transform:uppercase; }
+  .reel .label span{ display:block; margin-top:.5em; font-size: clamp(8px,1.1vh,14px);
+                     letter-spacing:.28em; text-indent:.28em; text-transform:uppercase;
+                     color: rgba(255,255,255,.72); }
+  .reel .label .by{
+    display:block; margin-top:.9em; font-size: clamp(7px,.85vh,11px);
+    letter-spacing:.05em; color: rgba(255,255,255,.46); font-style:normal;
+  }
+  @media (prefers-reduced-motion: reduce){ .reel img.shot{ animation:none; } }
+  .reel .waiting{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap: clamp(10px,1.6vh,20px);
+    text-align:center; padding:8%;
+    background: radial-gradient(90% 60% at 50% 16%, rgba(176,138,46,.10) 0%, rgba(255,255,255,0) 70%),
+                linear-gradient(165deg, #FFFFFF 0%, #EDF1F7 100%);
+  }
+  .reel .waiting .ring{
+    width: clamp(40px,5vh,70px); height: clamp(40px,5vh,70px); border-radius:50%;
+    border:1px solid rgba(176,138,46,.6); display:flex; align-items:center; justify-content:center;
+  }
+  .reel .waiting .ring::after{
+    content:''; width:0; height:0; margin-left:18%;
+    border-left: clamp(10px,1.35vh,18px) solid var(--gold);
+    border-top: clamp(6px,.85vh,12px) solid transparent;
+    border-bottom: clamp(6px,.85vh,12px) solid transparent;
+  }
+  .reel .waiting b{ font-size: clamp(13px,2.1vh,29px); font-weight:500; letter-spacing:.1em;
+                    text-transform:uppercase; color:var(--navy); }
+  .reel .waiting span{ font-size: clamp(9px,1.2vh,15px); letter-spacing:.3em; text-indent:.3em;
+                       text-transform:uppercase; color:var(--gold); }
+
+  /* ---------- the aircraft that flies between countries ---------- */
+  .plane{ background:none; border:0; }
+  .plane .body{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    will-change: transform;
+  }
+  .plane .body svg{ width:100%; height:100%; display:block;
+    filter: drop-shadow(0 5px 11px rgba(16,32,72,.45)) drop-shadow(0 1px 2px rgba(16,32,72,.28)); }
+  /* white, with a hairline so it still reads against a pale map */
+  .pl-hull{ fill:#FFFFFF; stroke:rgba(28,63,149,.5);  stroke-width:.9; stroke-linejoin:round; }
+  .pl-trim{ fill:#FFFFFF; stroke:rgba(28,63,149,.45); stroke-width:.8; stroke-linejoin:round; }
+  .pl-eng { fill:#F0F3F9; stroke:rgba(28,63,149,.45); stroke-width:.8; }
+
+  .m-ticks{
+    position:absolute; z-index:600; bottom: clamp(8px,1.4vh,18px); left:50%;
+    transform:translateX(-50%); display:flex; gap: clamp(4px,.5vw,8px);
+  }
+  .m-ticks button{
+    appearance:none; background:none; border:0; margin:0; padding:7px 2px;
+    cursor:pointer; line-height:0; -webkit-tap-highlight-color:transparent;
+  }
+  .m-ticks button i{
+    display:block; width: clamp(10px,1.1vw,22px); height:2px; border-radius:1px;
+    background: rgba(28,63,149,.18);
+    transition: background .4s ease, transform .3s cubic-bezier(.22,.9,.26,1);
+  }
+  .m-ticks button:hover i{ background: rgba(28,63,149,.45); transform: scaleY(2.4); }
+  .m-ticks button.on i{ background: var(--crimson); transform: scaleY(2); }
+  .m-ticks button:focus-visible{ outline:1px solid var(--crimson); outline-offset:2px; border-radius:3px; }
+  body.idle .m-ticks button{ cursor:none; }
+
+  /* ---------- footer ---------- */
+  .foot{
+    flex: 0 0 auto;
+    display:flex; align-items:center; justify-content:center; position:relative;
+    padding-top: clamp(6px,1.2vh,16px);
+    font-size: clamp(9px,1.25vh,16px); letter-spacing:.22em; text-indent:.22em;
+    color: var(--muted);
+  }
+  .dots{ position:absolute; right:0; display:flex; align-items:center; gap:3px; }
+  .dots button{
+    appearance:none; background:none; border:0; padding:6px 4px; margin:0;
+    cursor:pointer; line-height:0; -webkit-tap-highlight-color:transparent;
+  }
+  .dots button i{
+    display:block; width:7px; height:7px; border-radius:50%;
+    background: var(--navy); opacity:.22;
+    transition: opacity .4s ease, transform .3s cubic-bezier(.22,.9,.26,1);
+  }
+  .dots button:hover i{ opacity:.55; transform:scale(1.25); }
+  .dots button.on i{ opacity:.9; background: var(--crimson); transform:scale(1.15); }
+  .dots button:focus-visible{ outline:1px solid var(--crimson); outline-offset:2px; border-radius:4px; }
+  body.idle .dots button{ cursor:none; }
+
+  /* ---------- the chooser, opened by double-clicking the logo ---------- */
+  .sheet{
+    position:fixed; inset:0; z-index:900; display:none;
+    align-items:center; justify-content:center; padding: clamp(14px,3vh,40px);
+    background: rgba(18,28,58,.42); backdrop-filter: blur(3px); cursor:default;
+  }
+  .sheet.open{ display:flex; }
+  .sheet .panel{
+    background: var(--card); border-radius:6px; width:min(880px,100%); max-height:100%;
+    display:flex; flex-direction:column; overflow:hidden;
+    box-shadow: 0 0 0 1px rgba(176,138,46,.4), 0 40px 90px rgba(18,28,58,.4);
+  }
+  .sheet header{
+    display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    padding: clamp(14px,2.2vh,24px) clamp(16px,2.4vw,30px) clamp(10px,1.6vh,18px);
+    border-bottom:1px solid var(--rule);
+  }
+  .sheet header h3{ font-size: clamp(15px,2.1vh,24px); font-weight:600;
+                    letter-spacing:.18em; text-indent:.18em; text-transform:uppercase; color:var(--navy); }
+  .sheet header p{ font-size: clamp(10px,1.3vh,14px); color:var(--muted); letter-spacing:.06em; }
+  .sheet .body{ overflow:auto; padding: clamp(12px,2vh,22px) clamp(16px,2.4vw,30px); }
+  .sheet h4{
+    font-size: clamp(9px,1.15vh,12px); letter-spacing:.3em; text-indent:.3em;
+    text-transform:uppercase; color:var(--gold); margin: clamp(10px,1.6vh,18px) 0 clamp(7px,1vh,12px);
+  }
+  .sheet h4:first-child{ margin-top:0; }
+  .grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(190px,1fr)); gap:6px 14px; }
+  .opt{
+    display:flex; align-items:center; gap:10px; cursor:pointer;
+    padding:8px 10px; border-radius:4px; border:1px solid transparent;
+    font-size: clamp(12px,1.55vh,17px); color:var(--navy);
+  }
+  .opt:hover{ background: rgba(28,63,149,.045); border-color: var(--rule); }
+  .opt input{ appearance:none; width:17px; height:17px; flex:0 0 auto; margin:0;
+              border:1.5px solid rgba(28,63,149,.38); border-radius:3px; cursor:pointer;
+              position:relative; transition: background .2s ease, border-color .2s ease; }
+  .opt input:checked{ background: var(--crimson); border-color: var(--crimson); }
+  .opt input:checked::after{
+    content:''; position:absolute; left:5px; top:1.5px; width:4px; height:9px;
+    border:solid #fff; border-width:0 2px 2px 0; transform:rotate(42deg);
+  }
+  .opt.off{ color: var(--muted); }
+  .opt small{ display:block; font-size:.72em; letter-spacing:.1em; color:var(--muted); text-transform:uppercase; }
+  .sheet footer{
+    display:flex; align-items:center; justify-content:space-between; gap:14px;
+    padding: clamp(11px,1.8vh,18px) clamp(16px,2.4vw,30px);
+    border-top:1px solid var(--rule); background: #FBFCFE;
+  }
+  .sheet .warn{ font-size: clamp(10px,1.3vh,14px); color: var(--crimson); opacity:0; transition:opacity .3s ease; }
+  .sheet .warn.show{ opacity:1; }
+  .sheet .btns{ display:flex; gap:10px; }
+  .sheet button.act{
+    appearance:none; font:inherit; cursor:pointer; border-radius:4px;
+    padding: clamp(8px,1.2vh,12px) clamp(14px,1.8vw,26px);
+    font-size: clamp(11px,1.4vh,15px); letter-spacing:.16em; text-transform:uppercase;
+  }
+  .sheet button.ghost{ background:none; border:1px solid var(--rule); color:var(--muted); }
+  .sheet button.ghost:hover{ border-color: rgba(28,63,149,.34); color:var(--navy); }
+  .sheet button.solid{ background: var(--navy); border:1px solid var(--navy); color:#fff; }
+  .sheet button.solid:hover{ background:#173584; }
+
+  /* ---------- footer ---------- */
+
+  .hint{
+    position: fixed; inset: auto 0 clamp(8px,1.6vh,20px) 0; text-align:center;
+    font-size:12px; letter-spacing:.16em; text-indent:.16em; color:var(--muted);
+    opacity:.8; transition: opacity .9s ease; pointer-events:none;
+  }
+  .hint.gone{ opacity:0; }
+
+  /* one orchestrated moment: hands settle into place on load */
+  .h-hand, .m-hand, .s-hand{ transition: transform 1.15s cubic-bezier(.22,.9,.26,1); }
+  body.running .h-hand,
+  body.running .m-hand,
+  body.running .s-hand{ transition:none; }
+
+  @media (prefers-reduced-motion: reduce){
+    .h-hand,.m-hand,.s-hand{ transition:none; }
+    .scene{ transition:none; }
+  }
+
+  @media (max-width: 1280px){
+    :root{ --face: clamp(72px, min(21vw, 24vh), 230px); }
+    .row{ --cols: 4; }
+  }
+  @media (max-width: 860px){
+    :root{ --face: clamp(64px, min(27vw, 22vh), 190px); }
+    .row{ --cols: 3; }
+    .c-flight, .board > .hd.h-flight{ display:none; }
+  }
+  @media (max-width: 560px){
+    :root{ --face: clamp(56px, 30vw, 150px); }
+    .row{ --cols: 2; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="mark" id="mark"></div>
+
+  <div class="stage">
+    <section class="scene" id="sc-clocks"><div class="row" id="row"></div></section>
+    <section class="scene" id="sc-clocks2"><div class="row" id="row2"></div></section>
+
+    <section class="scene" id="sc-departures">
+      <div class="board-head"><h2>DEPARTURES</h2><div class="note" id="note-dep"></div></div>
+      <div class="board" id="board-dep"></div>
+    </section>
+
+    <section class="scene" id="sc-arrivals">
+      <div class="board-head"><h2>ARRIVALS</h2><div class="note" id="note-arr"></div></div>
+      <div class="board" id="board-arr"></div>
+    </section>
+
+    <section class="scene" id="sc-map">
+      <div id="map"></div>
+      <div class="m-vig"></div>
+      <div class="m-cap" id="mCap">
+        <div class="kicker">Al-Naser flies to</div>
+        <h2 id="mName">—</h2>
+        <div class="m-rule"></div>
+        <div class="m-cities" id="mCities"></div>
+        <div class="wx" id="wx"></div>
+      </div>
+      <div class="reel" id="reel"></div>
+      <div class="m-ticks" id="mTicks"></div>
+    </section>
+  </div>
+
+  <div class="foot"><span id="date"></span><span class="dots" id="dots"></span></div>
+  <p class="hint" id="hint">Tap the logo for fullscreen &nbsp;·&nbsp; double-tap it to choose screens</p>
+
+  <div class="sheet" id="sheet">
+    <div class="panel">
+      <header>
+        <h3>Choose what shows</h3>
+        <p>Saved on this screen. Untick anything you don't want in the rotation.</p>
+      </header>
+      <div class="body">
+        <h4>Screens</h4>
+        <div class="grid" id="optScenes"></div>
+        <h4>On the destination map</h4>
+        <div class="grid" id="optPlaces"></div>
+      </div>
+      <footer>
+        <span class="warn" id="sheetWarn">Keep at least one screen switched on.</span>
+        <div class="btns">
+          <button class="act ghost" id="sheetAll">All on</button>
+          <button class="act solid" id="sheetDone">Done</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ==================================================================
+   SETTINGS — everything you'd want to change lives in this block.
+   ================================================================== */
+
+/* every destination Al-Naser flies to, ordered west to east by clock.
+   Use \n in a name to choose where it breaks onto a second line. */
+const CLOCKS = [
+  { label: 'London',                    country: 'United Kingdom',       zone: 'Europe/London'     },
+  { label: 'Paris',                     country: 'France',               zone: 'Europe/Paris'      },
+  { label: 'Sarajevo',                  country: 'Bosnia & Herzegovina', zone: 'Europe/Sarajevo'   },
+  { label: 'Manama',                    country: 'Bahrain',              zone: 'Asia/Bahrain'      },
+  { label: 'Al Madinah\nAl Munawwarah', country: 'Saudi Arabia',         zone: 'Asia/Riyadh'       },
+  { label: 'Doha',                      country: 'Qatar',                zone: 'Asia/Qatar'        },
+  { label: 'Istanbul',                  country: 'Türkiye',              zone: 'Europe/Istanbul'   },
+  { label: 'Trabzon',                   country: 'Türkiye',              zone: 'Europe/Istanbul'   },
+  { label: 'Moscow',                    country: 'Russia',               zone: 'Europe/Moscow'     },
+  { label: 'Baku',                      country: 'Azerbaijan',           zone: 'Asia/Baku'         },
+  { label: 'Tbilisi',                   country: 'Georgia',              zone: 'Asia/Tbilisi'      },
+  { label: 'Almaty',                    country: 'Kazakhstan',           zone: 'Asia/Almaty'       },
+  { label: 'Colombo',                   country: 'Sri Lanka',            zone: 'Asia/Colombo'      },
+  { label: 'Bangkok',                   country: 'Thailand',             zone: 'Asia/Bangkok'      },
+  { label: 'Phuket',                    country: 'Thailand',             zone: 'Asia/Bangkok'      },
+  { label: 'Kuala Lumpur',              country: 'Malaysia',             zone: 'Asia/Kuala_Lumpur' },
+];
+
+// how long each screen stays up, in seconds
+const SCENES = [
+  { id: 'clocks',     hold: 14, name: 'Clocks — west' },
+  { id: 'clocks2',    hold: 14, name: 'Clocks — east' },
+  { id: 'departures', hold: 22, name: 'Departures' },
+  { id: 'arrivals',   hold: 22, name: 'Arrivals' },
+  { id: 'map',        hold: null, name: 'Destination map' },   // runs its own lap
+];
+
+// the clocks are split over two screens so each dial can be large
+const CLOCKS_PER_SCREEN = 8;
+
+/* --- the destination map ---------------------------------------
+   Drop a film in  videos/<file>  and it plays automatically.
+   Until a file exists the card reads "film coming soon".
+   Films are portrait, the shape of an Instagram reel (9:16).      */
+/* Demo stills from Wikimedia Commons — every one freely licensed, credited
+   on screen. Drop your own into photos/ and yours is used instead. */
+const WM = 'https://upload.wikimedia.org/wikipedia/';
+const PLACES = [
+  { country:'United Kingdom',       cities:'London',             lat:51.5074, lng:-0.1278,  zoom:9.6,  file:'united-kingdom.mp4', shot:WM+'commons/thumb/7/73/London_MMB_%C2%BB030_Waterloo_Millennium_Pier%2C_Palace_of_Westminster_and_Thames_Embankment.jpg/1280px-London_MMB_%C2%BB030_Waterloo_Millennium_Pier%2C_Palace_of_Westminster_and_Thames_Embankment.jpg', by:'mattbuck / CC BY-SA 4.0', zone:'Europe/London' },
+  { country:'France',               cities:'Paris',              lat:48.8566, lng:2.3522,   zoom:9.6,  file:'france.mp4', shot:WM+'commons/thumb/a/a8/Tour_Eiffel_Wikimedia_Commons.jpg/1280px-Tour_Eiffel_Wikimedia_Commons.jpg', by:'Benh Lieu Song / Public domain', zone:'Europe/Paris' },
+  { country:'Bosnia & Herzegovina', cities:'Sarajevo',           lat:43.8563, lng:18.4131,  zoom:10.2, file:'bosnia.mp4', shot:WM+'commons/thumb/9/99/Sarajevo_Bascarsija_Sebilj_2007-08-16.jpg/1280px-Sarajevo_Bascarsija_Sebilj_2007-08-16.jpg', by:'Milan Suvajac / CC BY-SA 4.0', zone:'Europe/Sarajevo' },
+  { country:'Türkiye',              cities:'Istanbul · Trabzon', lat:41.0082, lng:28.9784,  zoom:9.6,  file:'turkiye.mp4', shot:WM+'commons/thumb/2/22/Hagia_Sophia_Mars_2013.jpg/1280px-Hagia_Sophia_Mars_2013.jpg', by:'Arild Vågen / CC BY-SA 3.0', zone:'Europe/Istanbul' },
+  { country:'Russia',               cities:'Moscow',             lat:55.7558, lng:37.6173,  zoom:9.4,  file:'russia.mp4', shot:WM+'commons/thumb/5/57/Basil-cathedral-morning.jpg/1280px-Basil-cathedral-morning.jpg', by:'A.Savin / CC BY-SA 3.0', zone:'Europe/Moscow' },
+  { country:'Georgia',              cities:'Tbilisi',            lat:41.7151, lng:44.8271,  zoom:10.2, file:'georgia.mp4', shot:WM+'commons/thumb/7/7a/2014_Tbilisi%2C_Ruiny_twierdzy_Narikala_%2801%29.jpg/1280px-2014_Tbilisi%2C_Ruiny_twierdzy_Narikala_%2801%29.jpg', by:'Marcin Konsek / CC BY-SA 4.0', zone:'Asia/Tbilisi' },
+  { country:'Azerbaijan',           cities:'Baku',               lat:40.4093, lng:49.8671,  zoom:10.0, file:'azerbaijan.mp4', shot:WM+'commons/thumb/2/2e/Flame_towers_from_Baku_boulevard.JPG/1280px-Flame_towers_from_Baku_boulevard.JPG', by:'Xoncha / CC BY-SA 4.0', zone:'Asia/Baku' },
+  { country:'Kazakhstan',           cities:'Almaty',             lat:43.2220, lng:76.8512,  zoom:10.0, file:'kazakhstan.mp4', shot:WM+'commons/thumb/6/69/Ascention_Cathedral_in_Almaty.jpg/1280px-Ascention_Cathedral_in_Almaty.jpg', by:'Ken and Nyetta / CC BY 2.0', zone:'Asia/Almaty' },
+  { country:'Saudi Arabia',         cities:'Al Madinah',         lat:24.4672, lng:39.6111,  zoom:10.2, file:'saudi-arabia.mp4', shot:WM+'commons/thumb/7/75/Al_Masjid_an_Nabawi_4.jpg/1280px-Al_Masjid_an_Nabawi_4.jpg', by:'Aymanzaid2 / CC BY-SA 4.0', zone:'Asia/Riyadh' },
+  { country:'Bahrain',              cities:'Manama',             lat:26.2285, lng:50.5860,  zoom:10.8, file:'bahrain.mp4', shot:WM+'commons/thumb/f/f2/Bahrain_World_trade_Center_.jpg/1280px-Bahrain_World_trade_Center_.jpg', by:'B.alotaby / CC BY-SA 4.0', zone:'Asia/Bahrain' },
+  { country:'Qatar',                cities:'Doha',               lat:25.2854, lng:51.5310,  zoom:10.4, file:'qatar.mp4', shot:WM+'commons/thumb/4/45/Museum_of_Islamic_Art%2C_Doha_00_%2854%29.JPG/1280px-Museum_of_Islamic_Art%2C_Doha_00_%2854%29.JPG', by:'لا روسا / CC BY-SA 4.0', zone:'Asia/Qatar' },
+  { country:'Sri Lanka',            cities:'Colombo',            lat:6.9271,  lng:79.8612,  zoom:10.4, file:'sri-lanka.mp4', shot:WM+'commons/thumb/7/79/Blue_lotus_tower.jpg/1280px-Blue_lotus_tower.jpg', by:'Mohamed Rilwan1210 / CC BY-SA 4.0', zone:'Asia/Colombo' },
+  { country:'Thailand',             cities:'Bangkok · Phuket',   lat:13.7563, lng:100.5018, zoom:9.8,  file:'thailand.mp4', shot:WM+'commons/thumb/d/da/Templo_Wat_Arun%2C_Bangkok%2C_Tailandia%2C_2013-08-22%2C_DD_04.jpg/1280px-Templo_Wat_Arun%2C_Bangkok%2C_Tailandia%2C_2013-08-22%2C_DD_04.jpg', by:'Diego Delso / CC BY-SA 3.0', zone:'Asia/Bangkok' },
+  { country:'Malaysia',             cities:'Kuala Lumpur',       lat:3.1390,  lng:101.6869, zoom:10.2, file:'malaysia.mp4', shot:WM+'commons/thumb/0/09/2016_Kuala_Lumpur%2C_Petronas_Towers_%2818%29.jpg/1280px-2016_Kuala_Lumpur%2C_Petronas_Towers_%2818%29.jpg', by:'Marcin Konsek / CC BY-SA 4.0', zone:'Asia/Kuala_Lumpur' },
+];
+
+const VIDEO_DIR  = 'videos/';
+const PHOTO_DIR  = 'photos/';   // a landmark still, shown until a film arrives
+const MAP_FLY    = 4.6;   // seconds gliding from one country to the next
+const MAP_HOLD   = 13;    // seconds each country stays on screen
+const WX_REFRESH = 15;    // minutes between weather refreshes
+
+const ROWS        = 8;       // movements listed per board
+const SHOW_SEATS  = false;   // true = seat availability on departures, false = tour length
+const KEEP_GONE   = 90;      // minutes a departed/landed flight stays on the board
+const HOME_ZONE   = 'Asia/Bahrain';
+const USE_24H     = true;
+const SWEEP       = true;    // smooth second hand; false = one tick per second
+const BRAND_NAME  = 'AL-NASER TRAVEL & TOURS';
+const LOGO_SRC    = 'data:image/png;base64,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';
+
+const FLIGHTS = {"departures":[{"time":"06:55","date":"2026-09-15","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":0,"total":8},{"time":"01:40","date":"2026-09-16","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 30","nights":"7","avail":0,"total":27},{"time":"01:40","date":"2026-09-16","org":"BAH","dest":"SJJ","city":"Sarajevo","via":["DXB"],"no":"FZ 30","nights":"10","avail":9,"total":25},{"time":"01:50","date":"2026-09-17","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12","nights":"7","avail":0,"total":9},{"time":"18:10","date":"2026-09-17","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":18,"total":30},{"time":"06:00","date":"2026-09-18","org":"BAH","dest":"QAT","city":"Qatar","via":[],"no":"COACH","nights":"1","avail":20,"total":20},{"time":"08:35","date":"2026-09-18","org":"BAH","dest":"GYD","city":"Baku","via":["DXB"],"no":"FZ 24","nights":"7","avail":21,"total":25},{"time":"08:05","date":"2026-09-19","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":0,"total":28},{"time":"17:30","date":"2026-09-19","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":4,"total":20},{"time":"01:50","date":"2026-09-20","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"8","avail":0,"total":0},{"time":"01:40","date":"2026-09-21","org":"BAH","dest":"SJJ","city":"Sarajevo","via":["DXB"],"no":"FZ 30","nights":"7","avail":20,"total":20},{"time":"06:00","date":"2026-09-23","org":"HOF","dest":"QAT","city":"Qatar","via":[],"no":"COACH","nights":"2","avail":20,"total":20},{"time":"17:20","date":"2026-09-23","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":20,"total":20},{"time":"18:30","date":"2026-09-23","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 735","nights":"4","avail":0,"total":6},{"time":"04:00","date":"2026-09-25","org":"BAH","dest":"QAT","city":"Qatar","via":[],"no":"COACH","nights":"1","avail":20,"total":20},{"time":"08:30","date":"2026-09-25","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 24","nights":"7","avail":9,"total":20},{"time":"18:10","date":"2026-09-25","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":30,"total":30},{"time":"08:05","date":"2026-09-26","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":12,"total":28},{"time":"17:30","date":"2026-09-26","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":18,"total":20},{"time":"06:55","date":"2026-09-29","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":27,"total":30},{"time":"08:35","date":"2026-09-29","org":"BAH","dest":"GYD","city":"Baku","via":["DXB"],"no":"FZ 24","nights":"7","avail":0,"total":0},{"time":"10:40","date":"2026-10-01","org":"BAH","dest":"SVO","city":"Moscow","via":["AUH"],"no":"EY 642","nights":"7","avail":20,"total":20},{"time":"18:10","date":"2026-10-01","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":30,"total":30},{"time":"08:05","date":"2026-10-03","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":56,"total":60},{"time":"17:30","date":"2026-10-03","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"06:55","date":"2026-10-06","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":30,"total":30},{"time":"17:20","date":"2026-10-07","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":8,"total":10},{"time":"10:40","date":"2026-10-08","org":"BAH","dest":"SVO","city":"Moscow","via":["AUH"],"no":"EY 642","nights":"7","avail":20,"total":20},{"time":"08:05","date":"2026-10-10","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-10-10","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"18:10","date":"2026-10-10","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":30,"total":30},{"time":"06:55","date":"2026-10-13","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":30,"total":30},{"time":"08:30","date":"2026-10-14","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 24","nights":"7","avail":18,"total":20},{"time":"17:20","date":"2026-10-14","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":10,"total":10},{"time":"08:55","date":"2026-10-16","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":0,"total":0},{"time":"08:05","date":"2026-10-17","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-10-17","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"06:55","date":"2026-10-20","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":30,"total":30},{"time":"08:35","date":"2026-10-21","org":"BAH","dest":"GYD","city":"Baku","via":["DXB"],"no":"FZ 24","nights":"7","avail":25,"total":25},{"time":"17:20","date":"2026-10-21","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":10,"total":10},{"time":"08:30","date":"2026-10-22","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 24","nights":"7","avail":20,"total":20},{"time":"08:55","date":"2026-10-23","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":0,"total":0},{"time":"08:05","date":"2026-10-24","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-10-24","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"06:55","date":"2026-10-27","org":"DMM","dest":"MED","city":"Madinah","via":[],"no":"XY 705","nights":"4","avail":30,"total":30},{"time":"17:20","date":"2026-10-28","org":"BAH","dest":"HKT","city":"Phuket","via":["AUH"],"no":"EY 644","nights":"8","avail":10,"total":10},{"time":"10:40","date":"2026-10-29","org":"BAH","dest":"SVO","city":"Moscow","via":["AUH"],"no":"EY 642","nights":"7","avail":20,"total":20},{"time":"08:30","date":"2026-10-30","org":"BAH","dest":"TBS","city":"Tbilisi","via":["DXB"],"no":"FZ 24","nights":"7","avail":20,"total":20},{"time":"08:55","date":"2026-10-30","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":0,"total":0},{"time":"18:10","date":"2026-10-30","org":"BAH","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 104","nights":"8","avail":30,"total":30},{"time":"08:05","date":"2026-10-31","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"08:35","date":"2026-10-31","org":"BAH","dest":"GYD","city":"Baku","via":["DXB"],"no":"FZ 24","nights":"7","avail":25,"total":25},{"time":"08:45","date":"2026-10-31","org":"BAH","dest":"GYD","city":"Baku","via":[],"no":"GF 81W","nights":"7","avail":0,"total":0},{"time":"17:30","date":"2026-10-31","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"08:05","date":"2026-11-07","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-11-07","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"08:05","date":"2026-11-14","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":30,"total":30},{"time":"17:30","date":"2026-11-14","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"08:55","date":"2026-11-17","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"04:45","date":"2026-11-20","org":"BAH","dest":"DME","city":"Moscow","via":["SHJ"],"no":"G9 108","nights":"7","avail":30,"total":30},{"time":"04:45","date":"2026-11-20","org":"BAH","dest":"ALA","city":"Almaty","via":["SHJ"],"no":"G9 108","nights":"8","avail":30,"total":30},{"time":"08:55","date":"2026-11-20","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":60,"total":60},{"time":"09:05","date":"2026-11-20","org":"BAH","dest":"TBS","city":"Tbilisi","via":["SHJ"],"no":"G9 102","nights":"8","avail":30,"total":30},{"time":"09:05","date":"2026-11-20","org":"BAH","dest":"GYD","city":"Baku","via":["SHJ"],"no":"G9 102","nights":"7","avail":30,"total":30},{"time":"17:50","date":"2026-11-20","org":"BAH","dest":"BKK","city":"Bangkok","via":["SHJ"],"no":"G9 104","nights":"7","avail":30,"total":30},{"time":"17:50","date":"2026-11-20","org":"BAH","dest":"KUL","city":"Kuala Lumpur","via":["SHJ"],"no":"G9 104","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-11-21","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-11-21","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"08:55","date":"2026-11-27","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-11-28","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-11-28","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":20,"total":20},{"time":"08:05","date":"2026-12-05","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-12-05","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"08:55","date":"2026-12-11","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-12-12","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-12-12","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"01:50","date":"2026-12-15","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2026-12-15","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2026-12-18","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-12-19","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-12-19","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"01:50","date":"2026-12-20","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2026-12-22","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2026-12-25","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2026-12-26","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"17:30","date":"2026-12-26","org":"BAH","dest":"IST","city":"Istanbul","via":[],"no":"AJ 220","nights":"7","avail":0,"total":0},{"time":"08:05","date":"2027-01-02","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"08:55","date":"2027-01-08","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":60,"total":60},{"time":"09:25","date":"2027-01-08","org":"DMM","dest":"GYD","city":"Baku","via":["SHJ"],"no":"G9 164","nights":"8","avail":30,"total":30},{"time":"17:25","date":"2027-01-08","org":"DMM","dest":"CMB","city":"Colombo","via":["SHJ"],"no":"G9 168","nights":"8","avail":30,"total":30},{"time":"04:45","date":"2027-01-09","org":"DMM","dest":"DME","city":"Moscow","via":["SHJ"],"no":"G9 108","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2027-01-09","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2027-01-15","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2027-01-16","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60},{"time":"22:45","date":"2027-01-17","org":"BAH","dest":"BKK","city":"Bangkok","via":[],"no":"GF 152N","nights":"8","avail":30,"total":30},{"time":"01:50","date":"2027-01-19","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"7","avail":30,"total":30},{"time":"08:55","date":"2027-01-19","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":60,"total":60},{"time":"08:55","date":"2027-01-22","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"XQ 1501","nights":"7","avail":30,"total":30},{"time":"01:50","date":"2027-01-23","org":"BAH","dest":"SVO","city":"Moscow","via":[],"no":"GF 12O","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2027-01-23","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":30,"total":30},{"time":"08:05","date":"2027-01-30","org":"BAH","dest":"TZX","city":"Trabzon","via":[],"no":"AJ 5470","nights":"7","avail":60,"total":60}],"arrivals":[{"time":"11:30","date":"2026-09-19","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"03:00","date":"2026-09-20","org":"QAT","city":"Qatar","dest":"BAH","via":[],"no":"COACH","nights":"1"},{"time":"00:40","date":"2026-09-24","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 29","nights":"7"},{"time":"19:25","date":"2026-09-24","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13","nights":"7"},{"time":"08:15","date":"2026-09-25","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"17:30","date":"2026-09-25","org":"GYD","city":"Baku","dest":"BAH","via":["DXB"],"no":"FZ 27","nights":"7"},{"time":"23:00","date":"2026-09-25","org":"QAT","city":"Qatar","dest":"HOF","via":[],"no":"COACH","nights":"2"},{"time":"07:05","date":"2026-09-26","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-09-26","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"00:40","date":"2026-09-27","org":"SJJ","city":"Sarajevo","dest":"BAH","via":["DXB"],"no":"FZ 29","nights":"10"},{"time":"03:00","date":"2026-09-27","org":"QAT","city":"Qatar","dest":"BAH","via":[],"no":"COACH","nights":"1"},{"time":"20:00","date":"2026-09-27","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 706","nights":"4"},{"time":"19:25","date":"2026-09-28","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"8"},{"time":"00:40","date":"2026-09-29","org":"SJJ","city":"Sarajevo","dest":"BAH","via":["DXB"],"no":"FZ 29","nights":"7"},{"time":"17:00","date":"2026-10-01","org":"BGW","city":"Baghdad","dest":"DMM","via":[],"no":"IA 6613","nights":"7/14"},{"time":"20:35","date":"2026-10-02","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 25","nights":"7"},{"time":"20:45","date":"2026-10-02","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-10-03","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"08:15","date":"2026-10-03","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"11:30","date":"2026-10-03","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-03","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:30","date":"2026-10-06","org":"GYD","city":"Baku","dest":"BAH","via":["DXB"],"no":"FZ 27","nights":"7"},{"time":"17:00","date":"2026-10-08","org":"BGW","city":"Baghdad","dest":"DMM","via":[],"no":"IA 6613","nights":"7/14"},{"time":"20:45","date":"2026-10-08","org":"SVO","city":"Moscow","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"7"},{"time":"08:15","date":"2026-10-09","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"07:05","date":"2026-10-10","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"11:30","date":"2026-10-10","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-10","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:00","date":"2026-10-15","org":"BGW","city":"Baghdad","dest":"DMM","via":[],"no":"IA 6613","nights":"7/14"},{"time":"20:45","date":"2026-10-15","org":"SVO","city":"Moscow","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"7"},{"time":"20:45","date":"2026-10-16","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-10-17","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"11:30","date":"2026-10-17","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-17","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"08:15","date":"2026-10-18","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"20:35","date":"2026-10-21","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 25","nights":"7"},{"time":"17:00","date":"2026-10-22","org":"BGW","city":"Baghdad","dest":"DMM","via":[],"no":"IA 6613","nights":"14"},{"time":"07:55","date":"2026-10-23","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"20:45","date":"2026-10-23","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-10-24","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"11:30","date":"2026-10-24","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-24","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:30","date":"2026-10-28","org":"GYD","city":"Baku","dest":"BAH","via":["DXB"],"no":"FZ 27","nights":"7"},{"time":"20:35","date":"2026-10-29","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 25","nights":"7"},{"time":"07:55","date":"2026-10-30","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"20:45","date":"2026-10-30","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-10-31","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"11:30","date":"2026-10-31","org":"MED","city":"Madinah","dest":"DMM","via":[],"no":"XY 708","nights":"4"},{"time":"16:30","date":"2026-10-31","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"20:45","date":"2026-11-05","org":"SVO","city":"Moscow","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"7"},{"time":"07:55","date":"2026-11-06","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"20:35","date":"2026-11-06","org":"TBS","city":"Tbilisi","dest":"BAH","via":["DXB"],"no":"FZ 25","nights":"7"},{"time":"20:45","date":"2026-11-06","org":"BBK","city":"Bangkok","dest":"BAH","via":["AUH"],"no":"EY 645","nights":"8"},{"time":"07:05","date":"2026-11-07","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"08:15","date":"2026-11-07","org":"CMB","city":"Colombo","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"8"},{"time":"16:30","date":"2026-11-07","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:30","date":"2026-11-07","org":"GYD","city":"Baku","dest":"BAH","via":["DXB"],"no":"FZ 27","nights":"7"},{"time":"19:20","date":"2026-11-07","org":"GYD","city":"Baku","dest":"BAH","via":[],"no":"GF 82W","nights":"7"},{"time":"07:05","date":"2026-11-14","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-11-14","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:05","date":"2026-11-21","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-11-21","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2026-11-24","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:55","date":"2026-11-27","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"17:10","date":"2026-11-27","org":"GYD","city":"Baku","dest":"BAH","via":["SHJ"],"no":"G9 103","nights":"7"},{"time":"07:05","date":"2026-11-28","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"08:25","date":"2026-11-28","org":"DME","city":"Moscow","dest":"BAH","via":["SHJ"],"no":"G9 101","nights":"7"},{"time":"16:30","date":"2026-11-28","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"17:10","date":"2026-11-28","org":"HKT","city":"Phuket","dest":"BAH","via":["SHJ"],"no":"G9 103","nights":"7"},{"time":"17:10","date":"2026-11-28","org":"KUL","city":"Kuala Lumpur","dest":"BAH","via":["SHJ"],"no":"G9 103","nights":"7"},{"time":"18:30","date":"2026-11-28","org":"TBS","city":"Tbilisi","dest":"BAH","via":["AUH"],"no":"3L 17","nights":"8"},{"time":"20:10","date":"2026-11-28","org":"ALA","city":"Almaty","dest":"BAH","via":["SHJ"],"no":"G9 105","nights":"8"},{"time":"07:55","date":"2026-12-04","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:05","date":"2026-12-05","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-12-05","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:05","date":"2026-12-12","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-12-12","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2026-12-18","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:05","date":"2026-12-19","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-12-19","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2026-12-22","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"19:25","date":"2026-12-22","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"7"},{"time":"07:55","date":"2026-12-25","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:05","date":"2026-12-26","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2026-12-26","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"19:25","date":"2026-12-27","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"7"},{"time":"07:55","date":"2026-12-29","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:55","date":"2027-01-01","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"07:05","date":"2027-01-02","org":"IST","city":"Istanbul","dest":"BAH","via":[],"no":"AJ 221","nights":"7"},{"time":"16:30","date":"2027-01-02","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"16:30","date":"2027-01-09","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2027-01-15","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"08:45","date":"2027-01-16","org":"CMB","city":"Colombo","dest":"DMM","via":["SHJ"],"no":"G9 163","nights":"8"},{"time":"16:30","date":"2027-01-16","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"16:45","date":"2027-01-16","org":"GYD","city":"Baku","dest":"DMM","via":["SHJ"],"no":"G9 167","nights":"8"},{"time":"08:25","date":"2027-01-17","org":"DME","city":"Moscow","dest":"DMM","via":["SHJ"],"no":"G9 101","nights":"7"},{"time":"07:55","date":"2027-01-22","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"16:30","date":"2027-01-23","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"07:55","date":"2027-01-26","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"19:25","date":"2027-01-26","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"7"},{"time":"22:55","date":"2027-01-26","org":"BKK","city":"Bangkok","dest":"BAH","via":[],"no":"GF 153N","nights":"8"},{"time":"07:55","date":"2027-01-29","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"XQ 1500","nights":"7"},{"time":"16:30","date":"2027-01-30","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"},{"time":"19:25","date":"2027-01-30","org":"SVO","city":"Moscow","dest":"BAH","via":[],"no":"GF 13S","nights":"7"},{"time":"16:30","date":"2027-02-06","org":"TZX","city":"Trabzon","dest":"BAH","via":[],"no":"AJ 5469","nights":"7"}]};
+
+/* ================= nothing below needs editing ==================== */
+
+const NS = 'http://www.w3.org/2000/svg';
+const $  = id => document.getElementById(id);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const el = (n, a) => { const e = document.createElementNS(NS, n);
+                       for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+/* ---- logo, with a text wordmark as fallback ---- */
+const mark = $('mark');
+
+/* the masthead is a button: tap or click it to go in and out of full screen */
+const logoBtn = document.createElement('button');
+logoBtn.type = 'button';
+logoBtn.className = 'logo-btn';
+logoBtn.title = 'Full screen';
+logoBtn.setAttribute('aria-label', BRAND_NAME + ' \u2014 toggle full screen');
+logoBtn.setAttribute('aria-pressed', 'false');
+/* one tap goes fullscreen, two taps open the chooser — so a single
+   click waits a moment to see whether a second one is coming */
+let tapTimer = null;
+logoBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  if (tapTimer){ clearTimeout(tapTimer); tapTimer = null; openSheet(); return; }
+  tapTimer = setTimeout(() => { tapTimer = null; toggleFullscreen(); }, 260);
+});
+logoBtn.addEventListener('dblclick', e => e.preventDefault());
+mark.appendChild(logoBtn);
+
+const img  = new Image();
+img.alt = BRAND_NAME;
+img.onload  = () => logoBtn.appendChild(img);
+img.onerror = () => { const w = document.createElement('div');
+                      w.className = 'wordmark'; w.textContent = BRAND_NAME;
+                      logoBtn.appendChild(w); };
+img.src = LOGO_SRC;
+
+/* ================= scene 1 — the clocks ========================== */
+
+function face(id){
+  const svg  = el('svg', { viewBox:'0 0 200 200' });
+  const defs = el('defs');
+  const grad = el('radialGradient', { id, cx:'50%', cy:'32%', r:'78%' });
+  const a = el('stop', { offset:'0%'   }); a.style.stopColor = 'var(--dial-hi)';
+  const b = el('stop', { offset:'100%' }); b.style.stopColor = 'var(--dial-lo)';
+  grad.append(a, b); defs.appendChild(grad); svg.appendChild(defs);
+
+  svg.appendChild(el('circle', { class:'rim',  cx:100, cy:100, r:97 }));
+  svg.appendChild(el('circle', { cx:100, cy:100, r:93.5, fill:`url(#${id})` }));
+  svg.appendChild(el('circle', { class:'edge', cx:100, cy:100, r:93.5 }));
+
+  for (let i = 0; i < 60; i++){
+    const rot = `rotate(${i*6} 100 100)`;
+    if (i % 5 === 0){
+      const q = i % 15 === 0;
+      svg.appendChild(el('rect', { class: q ? 'baton qtr' : 'baton',
+        x: 100 - (q?1.7:1.1), y: q?66:70, width: q?3.4:2.2, height: q?16:12,
+        rx:1, transform:rot }));
+    } else {
+      svg.appendChild(el('rect', { class:'tick', x:99.75, y:80.5,
+        width:.5, height:3.6, transform:rot }));
+    }
+  }
+
+  const hour   = el('polygon', { class:'h-hand', points:'100,50 102.3,99 100,113 97.7,99' });
+  const minute = el('polygon', { class:'m-hand', points:'100,27 101.7,99 100,115 98.3,99' });
+  const second = el('g', { class:'s-hand' });
+  second.appendChild(el('rect',   { x:99.6, y:24, width:.8, height:92 }));
+  second.appendChild(el('circle', { cx:100, cy:114, r:3.4 }));
+
+  svg.append(hour, minute, second);
+  svg.appendChild(el('circle', { class:'cap',    cx:100, cy:100, r:4.2 }));
+  svg.appendChild(el('circle', { class:'cap-in', cx:100, cy:100, r:1.5 }));
+  return { svg, hour, minute, second };
+}
+
+const dials = CLOCKS.map((c, i) => {
+  const wrap = document.createElement('div'); wrap.className = 'clock';
+  const f = face('dial' + i);
+  const disc = document.createElement('div'); disc.className = 'dial'; disc.appendChild(f.svg);
+  const name = document.createElement('div'); name.className = 'city';    name.textContent = c.label;
+  const ctry = document.createElement('div'); ctry.className = 'country'; ctry.textContent = c.country || '';
+  const read = document.createElement('div'); read.className = 'readout'; read.textContent = '--:--';
+  wrap.append(disc, name, ctry, read);
+  $(i < CLOCKS_PER_SCREEN ? 'row' : 'row2').appendChild(wrap);
+  return { ...c, ...f, read, offset: 0, lastMin: -1 };
+});
+
+/* each zone's offset from UTC — picks up daylight saving automatically */
+function offsetOf(zone, when){
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit' }).formatToParts(when);
+  const g = t => +p.find(x => x.type === t).value;
+  return Date.UTC(g('year'), g('month')-1, g('day'), g('hour')%24, g('minute'), g('second'))
+       - Math.floor(when.getTime()/1000)*1000;
+}
+function refreshOffsets(){
+  const now = new Date();
+  dials.forEach(d => { d.offset = offsetOf(d.zone, now); });
+}
+refreshOffsets();
+setInterval(refreshOffsets, 30000);
+
+let clocksVisible = true;
+
+function tick(){
+  if (clocksVisible){
+    const now = Date.now();
+    for (const d of dials){
+      const t   = new Date(now + d.offset);
+      const sec = t.getUTCSeconds();
+      const s   = sec + (SWEEP ? t.getUTCMilliseconds()/1000 : 0);
+      d.second.setAttribute('transform', `rotate(${s*6} 100 100)`);
+
+      // hour and minute hands only move once a minute — across fourteen dials
+      // that is the difference between a smooth sweep and a stuttering one
+      const mm = t.getUTCMinutes();
+      if (mm !== d.lastMin){
+        d.lastMin = mm;
+        const hh = t.getUTCHours();
+        const m  = mm + sec/60, h = hh + m/60;
+        d.minute.setAttribute('transform', `rotate(${m*6} 100 100)`);
+        d.hour  .setAttribute('transform', `rotate(${h*30} 100 100)`);
+        d.read.textContent = USE_24H
+          ? String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0')
+          : (hh%12||12) + ':' + String(mm).padStart(2,'0') + (hh<12?' am':' pm');
+      }
+    }
+  }
+  if (SWEEP) requestAnimationFrame(tick); else setTimeout(tick, 250);
+}
+tick();
+requestAnimationFrame(() =>
+  requestAnimationFrame(() => document.body.classList.add('running')));
+
+/* ================= scenes 2 & 3 — the boards ===================== */
+
+/* "now" and "today" as they are at the counter in Bahrain, not on the
+   machine driving the screen — the two can differ if the player's
+   own time zone is set wrong. */
+function homeParts(){
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: HOME_ZONE, hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit' }).formatToParts(new Date());
+  const g = t => p.find(x => x.type === t).value;
+  return { key: `${g('year')}-${g('month')}-${g('day')}`,
+           mins: (+g('hour') % 24) * 60 + (+g('minute')) };
+}
+
+const WEEK  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTH = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function prettyDate(key){
+  const [y,m,d] = key.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  return `${WEEK[dt.getUTCDay()]} ${d} ${MONTH[m-1]}`;
+}
+const toMins = t => (+t.slice(0,2)) * 60 + (+t.slice(3,5));
+
+function upcoming(list){
+  const { key, mins } = homeParts();
+  return list.filter(f => {
+    if (f.date > key) return true;
+    if (f.date < key) return false;
+    return toMins(f.time) >= mins - KEEP_GONE;
+  }).slice(0, ROWS).map(f => ({
+    ...f,
+    today: f.date === key,
+    gone:  f.date === key && toMins(f.time) < mins,
+  }));
+}
+
+function cell(cls, html){
+  const d = document.createElement('div');
+  d.className = 'cell ' + cls;
+  d.innerHTML = html;
+  return d;
+}
+
+function drawBoard(target, list, kind){
+  const board = $(target);
+  board.textContent = '';
+  const arriving = kind === 'arrivals';
+
+  const heads = ['TIME', arriving ? 'FROM' : 'DESTINATION', 'FLIGHT',
+                 'DATE', (arriving || !SHOW_SEATS) ? 'NIGHTS' : 'SEATS'];
+  heads.forEach((h, i) => {
+    const d = document.createElement('div');
+    d.className = 'hd' + (i === 2 ? ' h-flight' : '');
+    if (i === 4) d.style.justifyContent = 'flex-end';
+    d.textContent = h;
+    board.appendChild(d);
+  });
+
+  const rows = upcoming(list);
+  if (!rows.length){
+    const e = document.createElement('div');
+    e.className = 'cell empty';
+    e.textContent = arriving ? 'No groups returning in this period'
+                             : 'No departures scheduled in this period';
+    board.appendChild(e);
+    return;
+  }
+
+  for (const f of rows){
+    const flag = (f.today ? ' today' : '') + (f.gone ? ' gone' : '');
+    const via  = f.via && f.via.length ? `<i>via ${f.via.join(' · ')}</i>` : '';
+    const port = arriving
+      ? (f.dest !== 'BAH' ? `<i>into ${f.dest}</i>` : '')
+      : (f.org  !== 'BAH' ? `<i>from ${f.org}</i>`  : '');
+
+    board.append(
+      cell('c-time' + flag, `<span class="c-time-v">${f.time}</span>`),
+      cell('c-place' + flag, `<span class="place"><b>${f.city}</b>${via}${port}</span>`),
+      cell('c-flight' + flag, f.no),
+      cell('c-when' + flag,
+        f.gone  ? `<span class="off">${arriving ? 'LANDED' : 'DEPARTED'}</span>`
+      : f.today ? `<span class="chip">TODAY</span>`
+                : prettyDate(f.date)),
+      cell('c-seats' + flag,
+        (arriving || !SHOW_SEATS) ? `${f.nights}N`
+      : f.avail === null || f.avail === undefined ? ''
+      : f.avail > 0 ? `<span class="free">${f.avail} free</span>`
+                    : `<span class="full">Full</span>`)
+    );
+  }
+}
+
+function todayNote(list, kind){
+  const { key } = homeParts();
+  const n = list.filter(f => f.date === key).length;
+  if (n) return `<b>${n}</b> ${kind === 'arrivals'
+    ? (n === 1 ? 'group returns today' : 'groups return today')
+    : (n === 1 ? 'departure today'     : 'departures today')}`;
+  const next = upcoming(list)[0];
+  return next ? `Next ${kind === 'arrivals' ? 'arrival' : 'departure'} ${prettyDate(next.date)}`
+              : '';
+}
+
+function refreshBoards(){
+  drawBoard('board-dep', FLIGHTS.departures, 'departures');
+  drawBoard('board-arr', FLIGHTS.arrivals,   'arrivals');
+  $('note-dep').innerHTML = todayNote(FLIGHTS.departures, 'departures');
+  $('note-arr').innerHTML = todayNote(FLIGHTS.arrivals,   'arrivals');
+}
+refreshBoards();
+setInterval(refreshBoards, 60000);
+
+
+/* ================= the destination map =========================== */
+
+const reel  = $('reel');
+const mCap  = $('mCap');
+const wxBox = $('wx');
+
+/* --- live weather, from Open-Meteo. Free, no key, all cities at once --- */
+const SKY = {
+  0:['Clear','sun'], 1:['Mainly clear','sun'], 2:['Partly cloudy','part'], 3:['Overcast','cloud'],
+  45:['Fog','fog'], 48:['Freezing fog','fog'],
+  51:['Light drizzle','rain'], 53:['Drizzle','rain'], 55:['Heavy drizzle','rain'],
+  56:['Freezing drizzle','rain'], 57:['Freezing drizzle','rain'],
+  61:['Light rain','rain'], 63:['Rain','rain'], 65:['Heavy rain','rain'],
+  66:['Freezing rain','rain'], 67:['Freezing rain','rain'],
+  71:['Light snow','snow'], 73:['Snow','snow'], 75:['Heavy snow','snow'], 77:['Snow grains','snow'],
+  80:['Showers','rain'], 81:['Showers','rain'], 82:['Heavy showers','rain'],
+  85:['Snow showers','snow'], 86:['Snow showers','snow'],
+  95:['Thunderstorm','storm'], 96:['Thunderstorm','storm'], 99:['Thunderstorm','storm'],
+};
+const CLOUD_PATH = '<path class="ic-cloud" d="M25 34h16a8 8 0 0 0 .6-16 11 11 0 0 0-20.8-3A7.5 7.5 0 0 0 25 34z"/>';
+const RAYS = (cx, cy, y, w, h) => [0,45,90,135,180,225,270,315]
+  .map(a => `<rect class="ic-sun" x="${cx - w/2}" y="${y}" width="${w}" height="${h}" rx="${w/2}" transform="rotate(${a} ${cx} ${cy})"/>`).join('');
+const ICONS = {
+  sun:   `<circle class="ic-sun" cx="24" cy="24" r="8.5"/>` + RAYS(24,24,4.5,2,5.5),
+  part:  `<circle class="ic-sun" cx="18" cy="18" r="6.5"/>` + RAYS(18,18,4.5,1.8,4.4) +
+         '<path class="ic-cloud2" d="M24 38h14a7 7 0 0 0 .5-14 9.6 9.6 0 0 0-18.2-2.6A6.6 6.6 0 0 0 24 38z"/>',
+  cloud: '<path class="ic-cloud2" d="M17 28h17a7.5 7.5 0 0 0 .5-15 10.3 10.3 0 0 0-19.5-2.8A7 7 0 0 0 17 28z"/>' +
+         '<path class="ic-cloud" d="M20 40h16a7 7 0 0 0 .5-14 9.8 9.8 0 0 0-18.5-2.6A6.8 6.8 0 0 0 20 40z"/>',
+  rain:  CLOUD_PATH + '<path class="ic-rain" d="M20 39l-2 5M28 39l-2 5M36 39l-2 5"/>',
+  snow:  CLOUD_PATH + '<path class="ic-snow" d="M20 40v5M17.7 41.3l4.6 2.4M22.3 41.3l-4.6 2.4M32 40v5M29.7 41.3l4.6 2.4M34.3 41.3l-4.6 2.4"/>',
+  storm: CLOUD_PATH + '<path class="ic-bolt" d="M28 37l-7 9h5l-2 7 8-10h-5l3-6z"/>',
+  fog:   '<path class="ic-cloud2" d="M23 28h17a7.5 7.5 0 0 0 .5-15 10.3 10.3 0 0 0-19.5-2.8A7 7 0 0 0 23 28z"/>' +
+         '<path class="ic-fog" d="M12 34h24M16 40h20M12 46h18"/>',
+};
+
+const weather = new Array(PLACES.length).fill(null);
+async function loadWeather(){
+  try{
+    const r = await fetch('https://api.open-meteo.com/v1/forecast'
+      + `?latitude=${PLACES.map(p=>p.lat).join(',')}&longitude=${PLACES.map(p=>p.lng).join(',')}`
+      + '&current=temperature_2m,weather_code&timezone=auto');
+    if (!r.ok) return;
+    const data = await r.json();
+    (Array.isArray(data) ? data : [data]).forEach((row, n) => {
+      if (row && row.current)
+        weather[n] = { temp: Math.round(row.current.temperature_2m), code: row.current.weather_code };
+    });
+  }catch(_){ /* leave the pill hidden and try again next time */ }
+}
+function localTime(zone){
+  try{
+    return new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour:'2-digit', minute:'2-digit',
+      hour12: !USE_24H }).format(new Date());
+  }catch(_){ return ''; }
+}
+
+/* the pill carries the weather and the city's own clock */
+let wxAt = -1, wxTick = null;
+function showWeather(n){
+  wxAt = n;
+  const p = PLACES[n], w = weather[n];
+  const time = localTime(p.zone);
+  if (!w && !time){ wxBox.classList.remove('ready'); wxBox.innerHTML = ''; return; }
+
+  let html = '';
+  if (w){
+    const [label, icon] = SKY[w.code] || ['—','cloud'];
+    html += `<svg viewBox="0 0 48 52" aria-hidden="true">${ICONS[icon] || ICONS.cloud}</svg>`
+          + `<span class="deg">${w.temp}&deg;</span><span class="sep"></span>`
+          + `<span class="sky">${label}</span>`;
+  }
+  if (time){
+    if (w) html += '<span class="sep"></span>';
+    html += `<span class="clock"><b id="wxClock">${time}</b><i>local time</i></span>`;
+  }
+  wxBox.innerHTML = html;
+  wxBox.classList.add('ready');
+
+  clearInterval(wxTick);
+  wxTick = setInterval(() => {
+    const el = document.getElementById('wxClock');
+    if (!el || wxAt !== n){ clearInterval(wxTick); return; }
+    el.textContent = localTime(p.zone);
+  }, 10000);
+}
+function hideWeather(){
+  clearInterval(wxTick); wxAt = -1;
+  wxBox.classList.remove('ready'); wxBox.innerHTML = '';
+}
+
+/* --- which films are in place --- */
+const haveFilm  = new Array(PLACES.length).fill(false);
+const havePhoto = new Array(PLACES.length).fill(false);
+const stillOf = p => PHOTO_DIR + p.file.replace(/\.[^.]+$/, '.jpg');
+
+async function there(url){
+  try{
+    const r = await fetch(url, { method:'HEAD' });
+    return r.ok && !String(r.headers.get('content-type') || '').includes('text/html');
+  }catch(_){ return false; }
+}
+async function refreshFilms(){
+  for (let n = 0; n < PLACES.length; n++){
+    haveFilm[n]  = await there(VIDEO_DIR + PLACES[n].file);
+    havePhoto[n] = haveFilm[n] ? false : await there(stillOf(PLACES[n]));
+  }
+}
+function showWaiting(p){
+  reel.innerHTML = `<div class="waiting"><div class="ring"></div><b>${p.country}</b>`
+                 + `<span>film coming soon</span></div>`;
+}
+/* a landmark photograph, used until a film for that country arrives */
+function showPhoto(p, src, credit){
+  reel.innerHTML = `<img class="shot" alt="${p.country}" src="${src}">`
+                 + `<div class="label"><b>${p.country}</b><span>${p.cities}</span>`
+                 + (credit ? `<em class="by">${credit}</em>` : '') + `</div>`;
+  reel.querySelector('img').addEventListener('error', () => showWaiting(p), { once:true });
+}
+
+function showFilm(p){
+  const poster = VIDEO_DIR + p.file.replace(/\.[^.]+$/, '.jpg');
+  reel.innerHTML = `<video muted playsinline autoplay loop preload="auto" poster="${poster}">`
+                 + `<source src="${VIDEO_DIR + p.file}"></video>`;
+  const v = reel.querySelector('video');
+  v.addEventListener('error', () => showWaiting(p), { once:true });
+  const play = v.play();
+  if (play && play.catch) play.catch(() => {});
+}
+
+/* --- the map itself, built the first time it is needed --- */
+/* the pin badge is the emblem lifted out of the logo, cropped here so
+   the artwork only lives in the file once */
+let PIN_SRC = '';
+const pinReady = new Promise(done => {
+  const img = new Image();
+  img.onload = () => {
+    const sw = Math.round(img.width * 0.60), sh = Math.round(img.height * 0.72);
+    const box = Math.max(sw, sh), out = 220, k = out / box;
+    const c = document.createElement('canvas'); c.width = c.height = out;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0, sw, sh, (out - sw*k)/2, (out - sh*k)/2, sw*k, sh*k);
+    try{ PIN_SRC = c.toDataURL('image/png'); }catch(_){}
+    done();
+  };
+  img.onerror = () => done();
+  img.src = LOGO_SRC;
+});
+
+let lmap = null, markers = [], mapReady = false;
+async function buildMap(){
+  if (mapReady) return;
+  await pinReady;
+  mapReady = true;
+  lmap = L.map('map', {
+    zoomControl:false, attributionControl:true,
+    dragging:false, scrollWheelZoom:false, doubleClickZoom:false,
+    boxZoom:false, keyboard:false, touchZoom:false,
+    zoomSnap:0, zoomDelta:0, wheelPxPerZoomLevel:9999, inertia:false,
+  }).setView([30, 46], 2.7);
+  const ESRI = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+  L.tileLayer(ESRI + 'World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom:16, crossOrigin:true, attribution:'Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
+  }).addTo(lmap);
+  L.tileLayer(ESRI + 'World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom:16, crossOrigin:true
+  }).addTo(lmap);
+
+  const size = Math.round(Math.min(56, Math.max(28, window.innerHeight * .042)));
+  markers = PLACES.map(p => L.marker([p.lat, p.lng], {
+    interactive:false, keyboard:false,
+    icon: L.divIcon({ className:'pin', iconSize:[size,size], iconAnchor:[size/2,size/2],
+                      html:`<i style="background-image:url('${PIN_SRC}')"></i>` })
+  }).addTo(lmap));
+  refreshFilms();
+  loadWeather();
+  setInterval(loadWeather, WX_REFRESH * 60 * 1000);
+}
+
+/* ---- the arc between two cities, and the aircraft along it ---- */
+const R2D = 180 / Math.PI, D2R = Math.PI / 180;
+
+function greatCircle(a, b, n){
+  const f1 = a[0]*D2R, l1 = a[1]*D2R, f2 = b[0]*D2R, l2 = b[1]*D2R;
+  const d = 2 * Math.asin(Math.sqrt(
+    Math.sin((f2-f1)/2)**2 + Math.cos(f1)*Math.cos(f2)*Math.sin((l2-l1)/2)**2));
+  if (!d || !isFinite(d)) return [a, b];
+  const pts = [];
+  for (let i = 0; i <= n; i++){
+    const t = i/n;
+    const A = Math.sin((1-t)*d)/Math.sin(d), B = Math.sin(t*d)/Math.sin(d);
+    const x = A*Math.cos(f1)*Math.cos(l1) + B*Math.cos(f2)*Math.cos(l2);
+    const y = A*Math.cos(f1)*Math.sin(l1) + B*Math.cos(f2)*Math.sin(l2);
+    const z = A*Math.sin(f1) + B*Math.sin(f2);
+    pts.push([Math.atan2(z, Math.hypot(x, y)) * R2D, Math.atan2(y, x) * R2D]);
+  }
+  return pts;
+}
+
+const PLANE_SVG =
+  '<svg viewBox="0 0 64 64" aria-hidden="true">' +
+    /* one silhouette: fuselage, swept wings, tailplane. Nose to the right. */
+    '<path class="pl-hull" d="M61.5 32 L59 30.2 L56 29.4 L46 29 L44 29 L30 6 L27 7.2 '+
+      'L33 29 L20 29.4 L15 29.6 L10.5 23.8 L8 24.6 L8.6 29.9 L5 30.7 L4 32 L5 33.3 '+
+      'L8.6 34.1 L8 39.4 L10.5 40.2 L15 34.4 L20 34.6 L33 35 L27 56.8 L30 58 L44 35 '+
+      'L46 35 L56 34.6 L59 33.8 Z"/>' +
+    /* the two engines, slung ahead of the wing */
+    '<rect class="pl-eng" x="33" y="18.5" width="7" height="3.6" rx="1.8"/>' +
+    '<rect class="pl-eng" x="33" y="41.9" width="7" height="3.6" rx="1.8"/>' +
+    /* the fin, in the house red */
+    '<path class="pl-trim" d="M15.5 32 L11.5 30.7 L5 30.3 L4 32 L5 33.7 L11.5 33.3 Z"/>' +
+  '</svg>';
+
+let planeMarker = null, trailLine = null, flightPane = false;
+function ensureFlightBits(){
+  if (!flightPane){
+    lmap.createPane('flight');
+    const pane = lmap.getPane('flight');
+    pane.style.zIndex = 620; pane.style.pointerEvents = 'none';
+    flightPane = true;
+  }
+  if (!trailLine){
+    trailLine = L.polyline([], { pane:'flight', color:'#C41230', weight:2,
+      opacity:.55, dashArray:'1 7', lineCap:'round', interactive:false }).addTo(lmap);
+  }
+  if (!planeMarker){
+    const size = Math.round(Math.min(96, Math.max(54, window.innerHeight * .082)));
+    planeMarker = L.marker([0,0], {
+      pane:'flight', interactive:false, keyboard:false, opacity:0,
+      icon: L.divIcon({ className:'plane', iconSize:[size,size], iconAnchor:[size/2,size/2],
+        html:`<div class="body">${PLANE_SVG}</div>` })
+    }).addTo(lmap);
+  }
+}
+function clearFlight(){
+  if (planeMarker) planeMarker.setOpacity(0);
+  if (trailLine) trailLine.setLatLngs([]);
+}
+
+/* flies the map and walks the aircraft along the arc at the same time.
+   The flight is two moves: pull back far enough to take in both cities,
+   then drop into the destination. */
+async function flyWithPlane(from, to, zoom, secs){
+  if (!from) return mapFly(to, zoom, secs);
+
+  startPlane(from, to, secs);
+
+  const span = L.latLngBounds([from, to]).pad(0.35);
+  let wide = lmap.getBoundsZoom(span, false);
+  wide = Math.max(2, Math.min(wide - 0.7, zoom - 2.6));   // always a real pull-back
+  await mapFly(span.getCenter(), wide, secs * 0.46);
+  await mapFly(to, zoom, secs * 0.54);
+}
+
+/* the aircraft runs on its own clock across the whole flight */
+function startPlane(from, to, secs){
+  ensureFlightBits();
+  const arc = greatCircle(from, to, 96);
+  trailLine.setLatLngs([]);
+  planeMarker.setOpacity(1);
+
+  const el = planeMarker.getElement();
+  const body = el && el.querySelector('.body');
+  const t0 = performance.now(), ms = secs * 1000;
+  const ease = t => t < .5 ? 2*t*t : 1 - (-2*t + 2)**2 / 2;
+  const token = tourToken;
+
+  (function step(now){
+    if (token !== tourToken){ clearFlight(); return; }
+    const t = Math.min(1, (now - t0) / ms);
+    const i = Math.min(arc.length - 2, Math.floor(ease(t) * (arc.length - 1)));
+    const here = arc[i], next = arc[i + 1];
+    planeMarker.setLatLng(here);
+    trailLine.setLatLngs(arc.slice(0, i + 1));
+    if (body){
+      const p1 = lmap.latLngToLayerPoint(here), p2 = lmap.latLngToLayerPoint(next);
+      body.style.transform = `rotate(${Math.atan2(p2.y - p1.y, p2.x - p1.x) * R2D}deg)`;
+    }
+    if (t < 1) requestAnimationFrame(step);
+    else { planeMarker.setOpacity(0); trailLine.setLatLngs([]); }
+  })(t0);
+}
+
+function mapFly(target, zoom, secs){
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (done) return; done = true; lmap.off('moveend', finish); resolve(); };
+    lmap.once('moveend', finish);
+    setTimeout(finish, secs * 1000 + 900);
+    lmap.flyTo(target, zoom, { duration: secs, easeLinearity:.22 });
+  });
+}
+
+/* the hold between countries can be cut short by clicking a tick */
+let wakeTour = null, pendingJump = null;
+function tourHold(ms){
+  return new Promise(res => {
+    const t = setTimeout(() => { wakeTour = null; res(); }, ms);
+    wakeTour = () => { clearTimeout(t); wakeTour = null; res(); };
+  });
+}
+
+/* one lap of the enabled countries; resolves when it is finished, and
+   bails out early if the screen has moved on in the meantime */
+let tourToken = 0;
+async function runMapTour(){
+  const token = ++tourToken;
+  const alive = () => token === tourToken;
+
+  await buildMap();
+  lmap.invalidateSize({ animate:false });
+
+  const picked = PLACES.map((p, n) => n).filter(n => settings.places[PLACES[n].file]);
+  const mTicks = $('mTicks');
+  mTicks.innerHTML = '';
+  picked.forEach((n, k) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.title = PLACES[n].country;
+    b.setAttribute('aria-label', 'Show ' + PLACES[n].country);
+    b.appendChild(document.createElement('i'));
+    b.addEventListener('click', e => {
+      e.stopPropagation(); stirred();
+      pendingJump = k;
+      if (wakeTour) wakeTour();
+    });
+    mTicks.appendChild(b);
+  });
+
+  if (!picked.length){
+    $('mName').textContent = 'Nothing selected';
+    $('mCities').textContent = 'choose countries from the logo';
+    hideWeather();
+    mCap.classList.add('on');
+    await wait(6000);
+    mCap.classList.remove('on');
+    return;
+  }
+
+  pendingJump = null;
+  clearFlight();
+  await mapFly([30, 46], 2.7, 1.6);
+  if (!alive()) return;
+
+  let k = 0, prev = null;
+  while (k < picked.length){
+    const n = picked[k], p = PLACES[n];
+    markers.forEach((m, j) => m.getElement()?.classList.toggle('live', j === n));
+    [...mTicks.children].forEach((t, j) => t.classList.toggle('on', j === k));
+
+    await flyWithPlane(prev, [p.lat, p.lng], p.zoom, MAP_FLY);
+    prev = [p.lat, p.lng];
+    if (!alive()) return;
+    /* somebody picked a different country while it was flying */
+    if (pendingJump !== null && pendingJump !== k){ k = pendingJump; pendingJump = null; continue; }
+    pendingJump = null;
+
+    $('mName').textContent   = p.country;
+    $('mCities').textContent = p.cities;
+    showWeather(n);
+    mCap.classList.add('on');
+
+    await wait(420);            if (!alive()) return;
+    if (haveFilm[n])       showFilm(p);
+    else if (havePhoto[n])   showPhoto(p, stillOf(p), '');          // your own picture
+    else if (p.shot)         showPhoto(p, p.shot, p.by);            // the demo still
+    else                     showWaiting(p);
+    reel.classList.add('on');
+
+    await tourHold(MAP_HOLD * 1000); if (!alive()) return;
+
+    reel.classList.remove('on');
+    mCap.classList.remove('on');
+    hideWeather();
+    await wait(760);            if (!alive()) return;
+    reel.innerHTML = '';
+
+    if (pendingJump !== null){ k = pendingJump; pendingJump = null; }
+    else k++;
+  }
+  markers.forEach(m => m.getElement()?.classList.remove('live'));
+  [...mTicks.children].forEach(t => t.classList.remove('on'));
+  await refreshFilms();        // a film may have arrived since the last lap
+}
+
+function stopMapTour(){
+  tourToken++;
+  clearFlight();
+  pendingJump = null;
+  if (wakeTour) wakeTour();
+  reel.classList.remove('on');
+  mCap.classList.remove('on');
+  hideWeather();
+  reel.innerHTML = '';
+}
+
+/* ================= what shows, and in what order ================= */
+
+const STORE = 'alnaser.display.v1';
+const settings = (() => {
+  const base = { scenes:{}, places:{} };
+  SCENES.forEach(s => base.scenes[s.id] = true);
+  PLACES.forEach(p => base.places[p.file] = true);
+  try{
+    const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (saved){
+      Object.keys(base.scenes).forEach(k => { if (k in (saved.scenes||{})) base.scenes[k] = !!saved.scenes[k]; });
+      Object.keys(base.places).forEach(k => { if (k in (saved.places||{})) base.places[k] = !!saved.places[k]; });
+    }
+  }catch(_){}
+  return base;
+})();
+function saveSettings(){
+  try{ localStorage.setItem(STORE, JSON.stringify(settings)); }catch(_){}
+}
+
+const dots = $('dots');
+const liveScenes = () => SCENES.filter(s => settings.scenes[s.id]);
+
+function buildDots(){
+  const list = liveScenes();
+  dots.innerHTML = '';
+  list.forEach((s, n) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.title = s.name;
+    b.setAttribute('aria-label', 'Show ' + s.name);
+    b.appendChild(document.createElement('i'));
+    b.addEventListener('click', e => { e.stopPropagation(); stirred(); show(n); });
+    dots.appendChild(b);
+  });
+}
+
+let at = 0, timer = null;
+function show(i){
+  const list = liveScenes();
+  if (!list.length) return;
+  at = ((i % list.length) + list.length) % list.length;
+  const s = list[at];
+
+  stopMapTour();
+  SCENES.forEach(x => $('sc-' + x.id).classList.toggle('on', x.id === s.id));
+  [...dots.children].forEach((d, n) => d.classList.toggle('on', n === at));
+
+  clocksVisible = s.id === 'clocks' || s.id === 'clocks2';
+  if (s.id === 'departures' || s.id === 'arrivals') refreshBoards();
+
+  clearTimeout(timer);
+  if (s.id === 'map'){
+    const mine = at;
+    runMapTour().then(() => { if (at === mine && !sheetOpen) show(at + 1); });
+  } else {
+    timer = setTimeout(() => show(at + 1), s.hold * 1000);
+  }
+}
+
+/* ---- the chooser ---- */
+const sheet = $('sheet');
+let sheetOpen = false;
+
+function drawSheet(){
+  const sc = $('optScenes'); sc.innerHTML = '';
+  SCENES.forEach(s => {
+    const l = document.createElement('label'); l.className = 'opt' + (settings.scenes[s.id] ? '' : ' off');
+    l.innerHTML = `<input type="checkbox" ${settings.scenes[s.id] ? 'checked' : ''}><span>${s.name}</span>`;
+    l.querySelector('input').addEventListener('change', e => {
+      if (!e.target.checked && liveScenes().length <= 1){
+        e.target.checked = true;
+        $('sheetWarn').classList.add('show');
+        setTimeout(() => $('sheetWarn').classList.remove('show'), 2600);
+        return;
+      }
+      settings.scenes[s.id] = e.target.checked;
+      l.classList.toggle('off', !e.target.checked);
+      saveSettings(); buildDots();
+    });
+    sc.appendChild(l);
+  });
+
+  const pl = $('optPlaces'); pl.innerHTML = '';
+  PLACES.forEach(p => {
+    const l = document.createElement('label'); l.className = 'opt' + (settings.places[p.file] ? '' : ' off');
+    l.innerHTML = `<input type="checkbox" ${settings.places[p.file] ? 'checked' : ''}>`
+                + `<span>${p.country}<small>${p.cities}</small></span>`;
+    l.querySelector('input').addEventListener('change', e => {
+      settings.places[p.file] = e.target.checked;
+      l.classList.toggle('off', !e.target.checked);
+      saveSettings();
+    });
+    pl.appendChild(l);
+  });
+}
+
+function openSheet(){
+  sheetOpen = true;
+  clearTimeout(timer);
+  stopMapTour();
+  drawSheet();
+  sheet.classList.add('open');
+  document.body.classList.remove('idle');
+}
+function closeSheet(){
+  sheetOpen = false;
+  sheet.classList.remove('open');
+  buildDots();
+  show(Math.min(at, Math.max(0, liveScenes().length - 1)));
+}
+$('sheetDone').addEventListener('click', e => { e.stopPropagation(); closeSheet(); });
+$('sheetAll').addEventListener('click', e => {
+  e.stopPropagation();
+  SCENES.forEach(s => settings.scenes[s.id] = true);
+  PLACES.forEach(p => settings.places[p.file] = true);
+  saveSettings(); drawSheet();
+});
+sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
+sheet.addEventListener('dblclick', e => e.stopPropagation());
+
+buildDots();
+show(0);
+
+/* ---- the date line along the bottom ---- */
+function stampDate(){
+  $('date').textContent = new Intl.DateTimeFormat('en-GB', { timeZone: HOME_ZONE,
+    weekday:'long', day:'numeric', month:'long', year:'numeric' }).format(new Date());
+}
+stampDate();
+setInterval(stampDate, 60000);
+
+/* ---- fullscreen, manual paging, idle cursor, keep-awake ---- */
+const hint = $('hint');
+setTimeout(() => hint.classList.add('gone'), 6000);
+
+function toggleFullscreen(){
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+  if (e.key === 'ArrowRight') show(at + 1);
+  if (e.key === 'ArrowLeft')  show(at - 1);
+});
+document.addEventListener('dblclick', toggleFullscreen);
+
+document.addEventListener('fullscreenchange', () => {
+  const on = !!document.fullscreenElement;
+  logoBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  logoBtn.title = on ? 'Exit full screen' : 'Full screen';
+});
+
+let idleTimer;
+function stirred(){
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add('idle'), 3000);
+}
+['mousemove','mousedown','keydown','touchstart'].forEach(ev =>
+  document.addEventListener(ev, stirred));
+stirred();
+
+async function keepAwake(){
+  try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }
+  catch (_) {}
+}
+keepAwake();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') keepAwake();
+});
+</script>
+</body>
+</html>
