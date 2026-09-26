@@ -1056,7 +1056,7 @@ async function buildMap(){
   }).setView([30, 46], 2.7);
   const ESRI = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/';
   L.tileLayer(ESRI + 'World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom:16, crossOrigin:true, keepBuffer:6, updateWhenZooming:false,
+    maxZoom:16, crossOrigin:true, keepBuffer:8, updateWhenZooming:true,
     attribution:'Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
   }).addTo(lmap);
 
@@ -1069,7 +1069,7 @@ async function buildMap(){
   labelPane.style.zIndex = 250;
   labelPane.style.pointerEvents = 'none';
   L.tileLayer(ESRI + 'World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-    pane:'labels', maxZoom:16, crossOrigin:true, keepBuffer:6, updateWhenZooming:false
+    pane:'labels', maxZoom:16, crossOrigin:true, keepBuffer:8, updateWhenZooming:true
   }).addTo(lmap);
 
   labelsReady = true;
@@ -1169,20 +1169,25 @@ async function flyWithPlane(from, to, zoom, secs){
 
   const span = L.latLngBounds([from, to]).pad(0.35);
   let wide = lmap.getBoundsZoom(span, false);
-  wide = Math.max(2, Math.min(wide - 0.7, zoom - 2.6));   // always a real pull-back
+  wide = Math.max(2, Math.min(wide - 0.4, zoom - 2.0));   // shallower: less tile stretching
 
   /* the map and the aircraft never move at the same time — that was
      what made the flight stutter */
   labelsOff();                                            // no smeared text
-  await mapFly(span.getCenter(), wide, secs * 0.32);      // climb out
-  await runPlane(from, to, secs * 0.42);                  // cruise
-  await mapFly(to, zoom, secs * 0.26);                    // descend
+  await mapFly(span.getCenter(), wide, secs * 0.36);      // climb out
+  await runPlane(from, to, secs * 0.34);                  // cruise
+  await mapFly(to, zoom, secs * 0.30);                    // descend
   labelsOn();                                             // sharp again
 }
 
 /* the aircraft runs on its own clock across the whole flight */
 function runPlane(from, to, secs){
-  return new Promise(done => {
+  return new Promise(resolve => {
+    /* animation frames pause if this page is ever put in the background,
+       so the flight gets a backstop rather than freezing the rotation */
+    let finished = false;
+    const done = () => { if (finished) return; finished = true; resolve(); };
+    setTimeout(done, secs * 1000 + 1500);
     ensureFlightBits();
     const full = greatCircle(from, to, 128);
     trailLine.setLatLngs([]);
