@@ -765,9 +765,19 @@ function tick(){
       }
     }
   }
-  if (SWEEP) requestAnimationFrame(tick); else setTimeout(tick, 250);
+  if (clocksVisible){
+    if (SWEEP) requestAnimationFrame(tick); else setTimeout(tick, 250);
+  } else {
+    clockLoopRunning = false;
+  }
 }
-tick();
+let clockLoopRunning = false;
+function startClockLoop(){
+  if (clockLoopRunning) return;
+  clockLoopRunning = true;
+  tick();
+}
+startClockLoop();
 requestAnimationFrame(() =>
   requestAnimationFrame(() => document.body.classList.add('running')));
 
@@ -1052,7 +1062,7 @@ async function buildMap(){
     zoomControl:false, attributionControl:true,
     dragging:false, scrollWheelZoom:false, doubleClickZoom:false,
     boxZoom:false, keyboard:false, touchZoom:false,
-    zoomSnap:0, zoomDelta:0, wheelPxPerZoomLevel:9999, inertia:false,
+    zoomSnap:0, zoomDelta:0, wheelPxPerZoomLevel:9999, inertia:false, preferCanvas:true,
   }).setView([30, 46], 2.7);
   const ESRI = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/';
   L.tileLayer(ESRI + 'World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
@@ -1397,6 +1407,7 @@ function show(i){
   [...dots.children].forEach((d, n) => d.classList.toggle('on', n === at));
 
   clocksVisible = s.id === 'clocks' || s.id === 'clocks2';
+  if (clocksVisible) startClockLoop();
   if (s.id === 'departures' || s.id === 'arrivals') refreshBoards();
 
   clearTimeout(timer);
