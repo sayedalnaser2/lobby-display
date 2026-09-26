@@ -201,7 +201,10 @@
   #sc-map{ padding:0; overflow:hidden; border-radius:3px; }
   #map{ position:absolute; inset:0; background:var(--paper); z-index:0; }
   .leaflet-container{ background:var(--paper); outline:none; font:inherit; }
-  .leaflet-tile-pane{ filter: brightness(1.04) contrast(.96) saturate(.85); }
+  /* no filter on the tile pane: a filter forces every tile to be
+     re-processed on every frame of a zoom, and that was the cost */
+  .leaflet-tile{ will-change: transform; }
+  .leaflet-pane.labels-pane{ transition: opacity .5s ease; }
   .leaflet-control-attribution{
     background: rgba(255,255,255,.72) !important; color: rgba(107,122,148,.8) !important;
     font-size: 9px !important; letter-spacing:.04em; padding: 2px 7px !important;
@@ -1040,11 +1043,30 @@ async function buildMap(){
   }).setView([30, 46], 2.7);
   const ESRI = 'https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/';
   L.tileLayer(ESRI + 'World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom:16, crossOrigin:true, attribution:'Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
+    maxZoom:16, crossOrigin:true, keepBuffer:6, updateWhenZooming:false,
+    attribution:'Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
   }).addTo(lmap);
+
+  /* The place names get their own pane. Raster text smears badly when it is
+     scaled through a zoom, so it is faded out while the map is moving and
+     brought back once it settles — you only read it standing still. */
+  lmap.createPane('labels');
+  const labelPane = lmap.getPane('labels');
+  labelPane.classList.add('labels-pane');
+  labelPane.style.zIndex = 250;
+  labelPane.style.pointerEvents = 'none';
   L.tileLayer(ESRI + 'World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom:16, crossOrigin:true
+    pane:'labels', maxZoom:16, crossOrigin:true, keepBuffer:6, updateWhenZooming:false
   }).addTo(lmap);
+
+  let labelTimer = null;
+  lmap.on('movestart zoomstart', () => {
+    clearTimeout(labelTimer); labelPane.style.opacity = '0';
+  });
+  lmap.on('moveend zoomend', () => {
+    clearTimeout(labelTimer);
+    labelTimer = setTimeout(() => { labelPane.style.opacity = '1'; }, 240);
+  });
 
   const size = Math.round(Math.min(56, Math.max(28, window.innerHeight * .042)));
   markers = PLACES.map(p => L.marker([p.lat, p.lng], {
