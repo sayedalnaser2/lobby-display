@@ -204,7 +204,10 @@
   /* no filter on the tile pane: a filter forces every tile to be
      re-processed on every frame of a zoom, and that was the cost */
   .leaflet-tile{ will-change: transform; }
-  .leaflet-pane.labels-pane{ transition: opacity .5s ease; }
+  /* names fade back in gently, but vanish instantly — a fade-out just
+     means watching them smear on the way out */
+  .leaflet-pane.labels-pane{ opacity:1; transition: opacity .55s ease; }
+  .leaflet-pane.labels-pane.hushed{ opacity:0; transition: none; }
   .leaflet-control-attribution{
     background: rgba(255,255,255,.72) !important; color: rgba(107,122,148,.8) !important;
     font-size: 9px !important; letter-spacing:.04em; padding: 2px 7px !important;
@@ -1030,7 +1033,17 @@ const pinReady = new Promise(done => {
   img.src = LOGO_SRC;
 });
 
-let lmap = null, markers = [], mapReady = false;
+let lmap = null, markers = [], mapReady = false, labelsReady = false;
+
+/* The place names are raster images like the rest of the map, so they
+   stretch while it zooms. They are switched off for the whole journey
+   and brought back once the map has come to rest. */
+function labelsOff(){
+  if (labelsReady) lmap.getPane('labels').classList.add('hushed');
+}
+function labelsOn(){
+  if (labelsReady) lmap.getPane('labels').classList.remove('hushed');
+}
 async function buildMap(){
   if (mapReady) return;
   await pinReady;
@@ -1059,14 +1072,7 @@ async function buildMap(){
     pane:'labels', maxZoom:16, crossOrigin:true, keepBuffer:6, updateWhenZooming:false
   }).addTo(lmap);
 
-  let labelTimer = null;
-  lmap.on('movestart zoomstart', () => {
-    clearTimeout(labelTimer); labelPane.style.opacity = '0';
-  });
-  lmap.on('moveend zoomend', () => {
-    clearTimeout(labelTimer);
-    labelTimer = setTimeout(() => { labelPane.style.opacity = '1'; }, 240);
-  });
+  labelsReady = true;
 
   const size = Math.round(Math.min(56, Math.max(28, window.innerHeight * .042)));
   markers = PLACES.map(p => L.marker([p.lat, p.lng], {
@@ -1159,7 +1165,7 @@ function clearFlight(){
    The flight is two moves: pull back far enough to take in both cities,
    then drop into the destination. */
 async function flyWithPlane(from, to, zoom, secs){
-  if (!from) return mapFly(to, zoom, secs);
+  if (!from){ labelsOff(); await mapFly(to, zoom, secs); labelsOn(); return; }
 
   const span = L.latLngBounds([from, to]).pad(0.35);
   let wide = lmap.getBoundsZoom(span, false);
@@ -1167,9 +1173,11 @@ async function flyWithPlane(from, to, zoom, secs){
 
   /* the map and the aircraft never move at the same time — that was
      what made the flight stutter */
+  labelsOff();                                            // no smeared text
   await mapFly(span.getCenter(), wide, secs * 0.32);      // climb out
   await runPlane(from, to, secs * 0.42);                  // cruise
   await mapFly(to, zoom, secs * 0.26);                    // descend
+  labelsOn();                                             // sharp again
 }
 
 /* the aircraft runs on its own clock across the whole flight */
