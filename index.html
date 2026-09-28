@@ -437,6 +437,14 @@
   .editMsg{ font-size: clamp(11px,1.4vh,14px); letter-spacing:.03em; margin-top:4px; min-height:1.4em; }
   .editMsg.err{ color:var(--crimson); }
   .editMsg.ok{ color:var(--green); }
+  .reviewTable{ max-height:34vh; overflow:auto; border:1px solid var(--rule); border-radius:4px; margin-bottom:10px; }
+  .reviewTable table{ border-collapse:collapse; width:100%; font-size:12px; }
+  .reviewTable th, .reviewTable td{ border:1px solid var(--rule); padding:4px 6px; white-space:nowrap; }
+  .reviewTable th{ background:rgba(28,63,149,.06); position:sticky; top:0; text-transform:uppercase;
+                   font-size:10px; letter-spacing:.08em; color:var(--muted); }
+  .reviewTable td[contenteditable]{ min-width:52px; cursor:text; }
+  .reviewTable td[contenteditable]:focus{ outline:2px solid var(--crimson); outline-offset:-2px; }
+  .reviewTable .rmRow{ border:none; background:none; color:var(--crimson); cursor:pointer; font-size:14px; }
   .grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(190px,1fr)); gap:6px 14px; }
   .opt{
     display:flex; align-items:center; gap:10px; cursor:pointer;
@@ -571,24 +579,34 @@
     <div class="panel">
       <header>
         <h3>Edit flights</h3>
-        <p>Password-protected. Upload an Excel file to replace the departures/arrivals board.</p>
+        <p>Password-protected. Upload an Excel or PDF file to replace the departures/arrivals board.</p>
       </header>
       <div class="body">
         <div class="editRow">
           <label>Password</label>
           <input type="password" id="editPass" autocomplete="off">
         </div>
-        <div class="editRow">
-          <label>Excel file (.xlsx — same layout as the template)</label>
-          <input type="file" id="editFile" accept=".xlsx">
+        <div class="editRow" id="pickRow">
+          <label>Excel or PDF file (.xlsx or .pdf — same layout as the template / your usual booking print)</label>
+          <input type="file" id="editFile" accept=".xlsx,.pdf">
         </div>
-        <div class="editRow">
+        <div class="editRow" id="templateRow">
           <button class="act ghost" id="editTemplate" type="button">Download current as Excel</button>
         </div>
         <div class="editMsg" id="editMsg"></div>
+        <div class="reviewWrap" id="reviewWrap" style="display:none">
+          <p class="editMsg">Read from the PDF — check every row, then confirm. Add or remove rows as needed.</p>
+          <h4>Departures</h4>
+          <div class="reviewTable" id="reviewDep"></div>
+          <button class="act ghost" id="addDep" type="button">+ Add departure row</button>
+          <h4>Arrivals</h4>
+          <div class="reviewTable" id="reviewArr"></div>
+          <button class="act ghost" id="addArr" type="button">+ Add arrival row</button>
+        </div>
       </div>
       <footer>
-        <span class="warn"></span>
+        <span class="warn" id="reviewBack" style="cursor:pointer; text-decoration:underline; display:none;">&larr; Start over</span>
+        <span class="warn" id="footSpacer"></span>
         <div class="btns">
           <button class="act ghost" id="editCancel" type="button">Cancel</button>
           <button class="act solid" id="editSave" type="button">Save</button>
@@ -599,6 +617,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script>
 /* ==================================================================
    SETTINGS — everything you'd want to change lives in this block.
@@ -1537,9 +1556,10 @@ function openEdit(){
   $('editMsg').className = 'editMsg';
   $('editPass').value = '';
   $('editFile').value = '';
+  exitReview();
   $('editSheet').classList.add('open');
 }
-function closeEdit(){ $('editSheet').classList.remove('open'); }
+function closeEdit(){ $('editSheet').classList.remove('open'); exitReview(); }
 $('openEdit').addEventListener('click', e => { e.stopPropagation(); openEdit(); });
 $('editCancel').addEventListener('click', e => { e.stopPropagation(); closeEdit(); });
 $('editSheet').addEventListener('click', e => { if (e.target === $('editSheet')) closeEdit(); });
@@ -1585,29 +1605,196 @@ function rowsFromSheet(ws, hasSeats){
   }).filter(r => r.date && r.time);
 }
 
-$('editSave').addEventListener('click', async e => {
-  e.stopPropagation();
-  const msg = $('editMsg');
-  const pass = $('editPass').value;
-  const file = $('editFile').files[0];
-  if (!pass){ msg.textContent = 'Enter the password.'; msg.className = 'editMsg err'; return; }
-  if (!file){ msg.textContent = 'Choose an Excel file.'; msg.className = 'editMsg err'; return; }
+/* ---- reading a PDF booking print: it has no real table structure, only
+   text positioned on a page, so this rebuilds rows from that layout.
+   Every "Edit flights" PDF export from this system has the same shape:
+   one row per package, with a shared date/nights/seats line and, in the
+   Flights column, three lines for the outbound leg then three for the
+   return leg. Anything that doesn't match that shape exactly is skipped
+   here and left for manual entry in the review table, rather than guessed. */
+if (window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
+const MONTHS_3 = { Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
+                    Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12' };
 
-  msg.textContent = 'Reading file…'; msg.className = 'editMsg';
-  let departures, arrivals;
-  try{
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const depSheet = wb.Sheets['departures'] || wb.Sheets[wb.SheetNames[0]];
-    const arrSheet = wb.Sheets['arrivals']   || wb.Sheets[wb.SheetNames[1]];
-    departures = rowsFromSheet(depSheet, true);
-    arrivals   = rowsFromSheet(arrSheet, false);
-  }catch(err){
-    msg.textContent = 'Could not read that file — is it the same layout as the template?';
-    msg.className = 'editMsg err';
-    return;
+function buildCityLookup(){
+  const map = {};
+  (FLIGHTS.departures || []).forEach(r => { if (r.dest && r.city) map[r.dest] = r.city; });
+  (FLIGHTS.arrivals   || []).forEach(r => { if (r.org  && r.city) map[r.org]  = r.city; });
+  return map;
+}
+
+async function extractFromPdf(file){
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const CITY = buildCityLookup();
+  const departures = [], arrivals = [];
+  let unmatched = 0;
+
+  const dateRe = /^\d{2}\/\d{2}\/\d{4}$/;
+  const legRe1  = /^([A-Z]{1,3}\s?\d{2,5})\s+\w{3}$/;
+  const legRe2  = /^(\d{2}[A-Za-z]{3})\s+([A-Z]{3})([A-Z]{3})$/;
+  const legRe3  = /^(\d{3,4})\s+(\d{3,4})$/;
+  const fmtTime = s => s.padStart(4, '0').replace(/^(\d{2})(\d{2})$/, '$1:$2');
+  const fmtDate = (tok, year) => {
+    const day = tok.slice(0, 2), mon = MONTHS_3[tok.slice(2)];
+    return mon ? `${year}-${mon}-${day}` : '';
+  };
+
+  for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++){
+    const page = await pdf.getPage(pageNo);
+    const content = await page.getTextContent();
+    const viewport = page.getViewport({ scale: 1 });
+    const items = content.items
+      .map(it => ({ text: it.str, x: it.transform[4], top: viewport.height - it.transform[5] }))
+      .filter(it => it.text.trim());
+    if (!items.length) continue;
+
+    const header = items.find(it => it.text.trim() === 'Flights');
+    const flLeft  = header ? header.x - 40 : 355;
+    const flRight = header ? header.x + 60 : 420;
+
+    const byTop = new Map();
+    items.forEach(it => {
+      const key = Math.round(it.top);
+      if (!byTop.has(key)) byTop.set(key, []);
+      byTop.get(key).push(it);
+    });
+    const tops = [...byTop.keys()].sort((a, b) => a - b);
+    const used = new Set(), lines = [];
+    tops.forEach(t => {
+      if (used.has(t)) return;
+      const group = [t];
+      tops.forEach(t2 => { if (t2 !== t && !used.has(t2) && Math.abs(t2 - t) <= 1.5) group.push(t2); });
+      group.forEach(g => used.add(g));
+      let all = [];
+      group.forEach(g => { all = all.concat(byTop.get(g)); });
+      all.sort((a, b) => a.x - b.x);
+      lines.push({ top: Math.min(...group), items: all });
+    });
+    lines.sort((a, b) => a.top - b.top);
+
+    const anchors = lines.filter(l => l.items.filter(it => dateRe.test(it.text)).length >= 2);
+
+    for (const anchor of anchors){
+      const band = lines.filter(l => Math.abs(l.top - anchor.top) <= 29);
+      const flWords = [];
+      band.forEach(l => l.items.forEach(it => {
+        if (it.x >= flLeft && it.x <= flRight) flWords.push({ top: l.top, x: it.x, text: it.text });
+      }));
+      const flByTop = new Map();
+      flWords.forEach(w => {
+        const key = Math.round(w.top);
+        if (!flByTop.has(key)) flByTop.set(key, []);
+        flByTop.get(key).push(w);
+      });
+      const flLines = [...flByTop.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, ws]) => ws.sort((a, b) => a.x - b.x).map(w => w.text).join(' '));
+
+      const dateToks = anchor.items.filter(it => dateRe.test(it.text));
+      const depYear = dateToks[0].text.slice(-4);
+      const retYear = dateToks[1].text.slice(-4);
+      let nights = '';
+      anchor.items.forEach(it => { if (it.x >= 320 && it.x <= 358 && /^\d{1,2}$/.test(it.text)) nights = it.text; });
+      let avail = '', total = '';
+      const texts = anchor.items.map(it => it.text);
+      const ofIdx = texts.indexOf('Of');
+      if (ofIdx > 0 && ofIdx < texts.length - 1){ avail = texts[ofIdx - 1]; total = texts[ofIdx + 1]; }
+
+      if (flLines.length !== 6){ unmatched++; continue; }
+      const m1a = legRe1.exec(flLines[0]), m1b = legRe2.exec(flLines[1]), m1c = legRe3.exec(flLines[2]);
+      const m2a = legRe1.exec(flLines[3]), m2b = legRe2.exec(flLines[4]), m2c = legRe3.exec(flLines[5]);
+      if (!m1a || !m1b || !m1c || !m2a || !m2b || !m2c){ unmatched++; continue; }
+
+      const leg1 = { no: m1a[1].replace(/\s+/g, ' ').trim(), date: fmtDate(m1b[1], depYear), org: m1b[2], dest: m1b[3], out: fmtTime(m1c[1]) };
+      const leg2 = { no: m2a[1].replace(/\s+/g, ' ').trim(), date: fmtDate(m2b[1], retYear), org: m2b[2], dest: m2b[3], in: fmtTime(m2c[2]) };
+
+      departures.push({ time: leg1.out, date: leg1.date, org: leg1.org, dest: leg1.dest,
+        city: CITY[leg1.dest] || leg1.dest, via: [], no: leg1.no, nights,
+        avail: Number(avail) || 0, total: Number(total) || 0 });
+      arrivals.push({ time: leg2.in, date: leg2.date, org: leg2.org,
+        city: CITY[leg2.org] || leg2.org, dest: leg2.dest, via: [], no: leg2.no, nights });
+    }
   }
+  return { departures, arrivals, unmatched };
+}
 
+/* ---- the review table: extracted PDF rows are shown editable here,
+   nothing is saved until this is confirmed ---- */
+const DEP_COLS = ['date','time','org','dest','city','no','nights','avail','total'];
+const ARR_COLS = ['date','time','org','city','dest','no','nights'];
+let reviewDepRows = [], reviewArrRows = [], inReview = false;
+
+function blankRow(cols){ const o = {}; cols.forEach(c => o[c] = ''); return o; }
+
+function renderReview(){
+  const draw = (el, rows, cols) => {
+    const head = '<tr>' + cols.map(c => `<th>${c}</th>`).join('') + '<th></th></tr>';
+    const body = rows.map((r, i) => '<tr>' + cols.map(c =>
+      `<td contenteditable="true" data-i="${i}" data-c="${c}">${(r[c] ?? '')}</td>`).join('') +
+      `<td><button type="button" class="rmRow" data-i="${i}">&times;</button></td></tr>`).join('');
+    el.innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  };
+  draw($('reviewDep'), reviewDepRows, DEP_COLS);
+  draw($('reviewArr'), reviewArrRows, ARR_COLS);
+}
+$('reviewDep').addEventListener('focusout', e => {
+  const td = e.target.closest('td[contenteditable]'); if (!td) return;
+  reviewDepRows[+td.dataset.i][td.dataset.c] = td.textContent.trim();
+});
+$('reviewArr').addEventListener('focusout', e => {
+  const td = e.target.closest('td[contenteditable]'); if (!td) return;
+  reviewArrRows[+td.dataset.i][td.dataset.c] = td.textContent.trim();
+});
+$('reviewDep').addEventListener('click', e => {
+  const b = e.target.closest('.rmRow'); if (!b) return;
+  reviewDepRows.splice(+b.dataset.i, 1); renderReview();
+});
+$('reviewArr').addEventListener('click', e => {
+  const b = e.target.closest('.rmRow'); if (!b) return;
+  reviewArrRows.splice(+b.dataset.i, 1); renderReview();
+});
+$('addDep').addEventListener('click', e => { e.stopPropagation(); reviewDepRows.push(blankRow(DEP_COLS)); renderReview(); });
+$('addArr').addEventListener('click', e => { e.stopPropagation(); reviewArrRows.push(blankRow(ARR_COLS)); renderReview(); });
+
+function enterReview(departures, arrivals){
+  inReview = true;
+  reviewDepRows = departures; reviewArrRows = arrivals;
+  renderReview();
+  $('pickRow').style.display = 'none';
+  $('templateRow').style.display = 'none';
+  $('reviewWrap').style.display = '';
+  $('reviewBack').style.display = '';
+  $('editSave').textContent = 'Confirm & save';
+}
+function exitReview(){
+  inReview = false;
+  $('pickRow').style.display = '';
+  $('templateRow').style.display = '';
+  $('reviewWrap').style.display = 'none';
+  $('reviewBack').style.display = 'none';
+  $('editSave').textContent = 'Save';
+}
+$('reviewBack').addEventListener('click', e => {
+  e.stopPropagation();
+  exitReview();
+  $('editMsg').textContent = ''; $('editMsg').className = 'editMsg';
+});
+
+function rowsFromReviewTable(cols, rows, hasSeats){
+  return rows.map(r => {
+    const via = [];
+    const out = { time: r.time||'', date: r.date||'', org: (r.org||'').toUpperCase(),
+      dest: (r.dest||'').toUpperCase(), city: r.city||'', via, no: r.no||'', nights: r.nights||'' };
+    if (hasSeats){ out.avail = Number(r.avail) || 0; out.total = Number(r.total) || 0; }
+    return out;
+  }).filter(r => r.date && r.time);
+}
+
+async function saveToWorker(pass, departures, arrivals, msg){
   msg.textContent = 'Saving…'; msg.className = 'editMsg';
   try{
     const r = await fetch(FLIGHTS_API, {
@@ -1629,6 +1816,64 @@ $('editSave').addEventListener('click', async e => {
     msg.textContent = 'Could not reach the save service. Check the connection and try again.';
     msg.className = 'editMsg err';
   }
+}
+
+$('editSave').addEventListener('click', async e => {
+  e.stopPropagation();
+  const msg = $('editMsg');
+  const pass = $('editPass').value;
+  if (!pass){ msg.textContent = 'Enter the password.'; msg.className = 'editMsg err'; return; }
+
+  if (inReview){
+    const departures = rowsFromReviewTable(DEP_COLS, reviewDepRows, true);
+    const arrivals    = rowsFromReviewTable(ARR_COLS, reviewArrRows, false);
+    if (!departures.length && !arrivals.length){
+      msg.textContent = 'No rows with both a date and a time yet.'; msg.className = 'editMsg err'; return;
+    }
+    await saveToWorker(pass, departures, arrivals, msg);
+    return;
+  }
+
+  const file = $('editFile').files[0];
+  if (!file){ msg.textContent = 'Choose an Excel or PDF file.'; msg.className = 'editMsg err'; return; }
+  const isPdf = /\.pdf$/i.test(file.name);
+
+  if (isPdf){
+    msg.textContent = 'Reading the PDF…'; msg.className = 'editMsg';
+    let out;
+    try{ out = await extractFromPdf(file); }
+    catch(err){
+      msg.textContent = 'Could not read that PDF.'; msg.className = 'editMsg err'; return;
+    }
+    if (!out.departures.length && !out.arrivals.length){
+      msg.textContent = 'Could not find any rows in the usual layout — add them by hand below.';
+      msg.className = 'editMsg err';
+      enterReview([], []);
+      return;
+    }
+    msg.textContent = out.unmatched
+      ? `Read ${out.departures.length} package(s). ${out.unmatched} row(s) didn't match the usual layout and were skipped — add those by hand if needed.`
+      : `Read ${out.departures.length} package(s). Check the rows below, then confirm.`;
+    msg.className = 'editMsg';
+    enterReview(out.departures, out.arrivals);
+    return;
+  }
+
+  msg.textContent = 'Reading file…'; msg.className = 'editMsg';
+  let departures, arrivals;
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const depSheet = wb.Sheets['departures'] || wb.Sheets[wb.SheetNames[0]];
+    const arrSheet = wb.Sheets['arrivals']   || wb.Sheets[wb.SheetNames[1]];
+    departures = rowsFromSheet(depSheet, true);
+    arrivals   = rowsFromSheet(arrSheet, false);
+  }catch(err){
+    msg.textContent = 'Could not read that file — is it the same layout as the template?';
+    msg.className = 'editMsg err';
+    return;
+  }
+  await saveToWorker(pass, departures, arrivals, msg);
 });
 
 /* the weather is asked for straight away, not when the map first opens,
