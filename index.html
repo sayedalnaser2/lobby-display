@@ -143,7 +143,7 @@
   .board{
     flex: 1 1 auto; min-height: 0;
     display: grid;
-    grid-template-columns: max-content minmax(0,1fr) max-content max-content max-content;
+    grid-template-columns: max-content minmax(0,1fr) max-content max-content max-content max-content;
     align-content: start;
     background: var(--card);
     border-radius: 3px;
@@ -163,7 +163,9 @@
     padding-top: clamp(6px,1.1vh,14px); padding-bottom: clamp(6px,1.1vh,14px);
     border-bottom-color: rgba(28,63,149,.22);
   }
-  .board > .cell{ padding-top: clamp(5px,.9vh,13px); padding-bottom: clamp(5px,.9vh,13px); }
+  .board > .cell{ padding-top: clamp(3px,.62vh,10px); padding-bottom: clamp(3px,.62vh,10px); }
+  .c-wx{ gap:.3em; font-size: clamp(13px,1.95vh,27px); font-variant-numeric: tabular-nums; white-space:nowrap; }
+  .c-wx svg{ width:1.45em; height:1.55em; flex:0 0 auto; }
 
   /* a today row: crimson edge on the time cell, faint wash across */
   .board > .cell.today{ background: rgba(196,18,48,.055); }
@@ -508,6 +510,7 @@
     :root{ --face: clamp(64px, min(27vw, 22vh), 190px); }
     .row{ --cols: 3; }
     .c-flight, .board > .hd.h-flight{ display:none; }
+    .board{ grid-template-columns: max-content minmax(0,1fr) max-content max-content max-content; }
   }
   @media (max-width: 560px){
     :root{ --face: clamp(56px, 30vw, 150px); }
@@ -686,9 +689,9 @@ const MAP_FLY    = 6.2;   // seconds gliding from one country to the next
 const MAP_HOLD   = 13;    // seconds each country stays on screen
 const WX_REFRESH = 15;    // minutes between weather refreshes
 
-const ROWS        = 8;       // movements listed per board
+const ROWS        = 14;      // most movements per board — rows that don't fit the screen are dropped automatically
 const SHOW_SEATS  = false;   // true = seat availability on departures, false = tour length
-const KEEP_GONE   = 90;      // minutes a departed/landed flight stays on the board
+const KEEP_GONE   = 'day';   // departed/landed flights stay on the board until midnight (Bahrain time)
 const HOME_ZONE   = 'Asia/Bahrain';
 const USE_24H     = true;
 const SWEEP       = true;    // smooth second hand; false = one tick per second
@@ -875,11 +878,9 @@ const toMins = t => (+t.slice(0,2)) * 60 + (+t.slice(3,5));
 
 function upcoming(list){
   const { key, mins } = homeParts();
-  return list.filter(f => {
-    if (f.date > key) return true;
-    if (f.date < key) return false;
-    return toMins(f.time) >= mins - KEEP_GONE;
-  }).slice(0, ROWS).map(f => ({
+  return list.filter(f => f && /^\d{4}-\d{2}-\d{2}$/.test(f.date) && /^\d{1,2}:\d{2}$/.test(f.time) && f.date >= key)
+    .sort((a, b) => (a.date + a.time.padStart(5, '0')).localeCompare(b.date + b.time.padStart(5, '0')))
+    .slice(0, ROWS).map(f => ({
     ...f,
     today: f.date === key,
     gone:  f.date === key && toMins(f.time) < mins,
@@ -898,12 +899,12 @@ function drawBoard(target, list, kind){
   board.textContent = '';
   const arriving = kind === 'arrivals';
 
-  const heads = ['TIME', arriving ? 'FROM' : 'DESTINATION', 'FLIGHT',
+  const heads = ['TIME', arriving ? 'FROM' : 'DESTINATION', 'WEATHER', 'FLIGHT',
                  'DATE', (arriving || !SHOW_SEATS) ? 'NIGHTS' : 'SEATS'];
   heads.forEach((h, i) => {
     const d = document.createElement('div');
-    d.className = 'hd' + (i === 2 ? ' h-flight' : '');
-    if (i === 4) d.style.justifyContent = 'flex-end';
+    d.className = 'hd' + (i === 3 ? ' h-flight' : '');
+    if (i === 5) d.style.justifyContent = 'flex-end';
     d.textContent = h;
     board.appendChild(d);
   });
@@ -928,18 +929,20 @@ function drawBoard(target, list, kind){
     board.append(
       cell('c-time' + flag, `<span class="c-time-v">${f.time}</span>`),
       cell('c-place' + flag, `<span class="place"><b>${f.city}</b>${via}${port}</span>`),
+      cell('c-wx' + flag, wxCell(arriving ? f.org : f.dest)),
       cell('c-flight' + flag, f.no),
       cell('c-when' + flag,
         f.gone  ? `<span class="off">${arriving ? 'LANDED' : 'DEPARTED'}</span>`
       : f.today ? `<span class="chip">TODAY</span>`
                 : prettyDate(f.date)),
       cell('c-seats' + flag,
-        (arriving || !SHOW_SEATS) ? `${f.nights}N`
+        (arriving || !SHOW_SEATS) ? (f.nights ? `${f.nights}N` : '')
       : f.avail === null || f.avail === undefined ? ''
       : f.avail > 0 ? `<span class="free">${f.avail} free</span>`
                     : `<span class="full">Full</span>`)
     );
   }
+  fitBoard(board, heads.length);
 }
 
 function todayNote(list, kind){
@@ -959,8 +962,122 @@ function refreshBoards(){
   $('note-dep').innerHTML = todayNote(FLIGHTS.departures, 'departures');
   $('note-arr').innerHTML = todayNote(FLIGHTS.arrivals,   'arrivals');
 }
-loadFlights().then(refreshBoards);
+/* ---- weather for each destination on the boards ------------------
+   Coordinates come from AIRPORTS first. Any code not listed is looked up
+   once by its city name (Open-Meteo geocoding — free, no key) and
+   remembered on this screen. If nothing is found the weather cell is just
+   left empty; a new or unknown destination can never stop the board. */
+const AIRPORTS = {
+  BAH:[26.27,50.63], DMM:[26.47,49.80], RUH:[24.96,46.70], JED:[21.68,39.16], MED:[24.55,39.70],
+  AHB:[18.24,42.66], TIF:[21.48,40.54], KWI:[29.24,47.97], DOH:[25.27,51.61], QAT:[25.27,51.61],
+  DXB:[25.25,55.36], DWC:[24.90,55.16], SHJ:[25.33,55.52], AUH:[24.43,54.65], RKT:[25.61,55.94],
+  MCT:[23.59,58.28], SLL:[17.04,54.09], AMM:[31.72,35.99], BEY:[33.82,35.49], CAI:[30.12,31.41],
+  HRG:[27.18,33.80], SSH:[27.98,34.39], NJF:[31.99,44.40], BGW:[33.26,44.23], EBL:[36.24,43.96],
+  ISU:[35.56,45.32], IKA:[35.42,51.15], MHD:[36.24,59.64], IST:[41.26,28.74], SAW:[40.90,29.31],
+  TZX:[40.99,39.79], AYT:[36.90,30.80], ESB:[40.13,32.99], ADB:[38.29,27.16], BJV:[37.25,27.66],
+  DLM:[36.71,28.79], SZF:[41.26,36.55], TBS:[41.67,44.95], BUS:[41.61,41.60], KUT:[42.18,42.48],
+  GYD:[40.47,50.05], GBB:[40.83,47.71], EVN:[40.15,44.40], ALA:[43.35,77.04], NQZ:[51.02,71.47],
+  TAS:[41.26,69.28], SKD:[39.70,66.98], FRU:[43.06,74.48], SVO:[55.97,37.41], DME:[55.41,37.91],
+  VKO:[55.59,37.26], LED:[59.80,30.26], KZN:[55.61,49.28], SJJ:[43.82,18.33], BEG:[44.82,20.29],
+  TGD:[42.36,19.25], TIV:[42.40,18.72], ZAG:[45.74,16.07], VIE:[48.11,16.57], PRG:[50.10,14.26],
+  BUD:[47.44,19.26], MUC:[48.35,11.79], FRA:[50.04,8.56], ZRH:[47.46,8.55], GVA:[46.24,6.11],
+  CDG:[49.01,2.55], ORY:[48.73,2.37], NCE:[43.66,7.22], LHR:[51.47,-0.45], LGW:[51.15,-0.19],
+  MAN:[53.35,-2.28], EDI:[55.95,-3.37], AMS:[52.31,4.76], BRU:[50.90,4.48], FCO:[41.80,12.25],
+  MXP:[45.63,8.72], VCE:[45.51,12.35], BCN:[41.30,2.08], MAD:[40.49,-3.57], AGP:[36.67,-4.50],
+  LIS:[38.78,-9.14], ATH:[37.94,23.94], SVQ:[37.42,-5.89], CMN:[33.37,-7.59], RAK:[31.61,-8.04],
+  CMB:[7.18,79.88], MLE:[4.19,73.53], COK:[10.15,76.40], TRV:[8.48,76.92], BOM:[19.09,72.87],
+  DEL:[28.57,77.10], BLR:[13.20,77.71], MAA:[12.99,80.17], HYD:[17.23,78.43], GOI:[15.38,73.83],
+  KTM:[27.70,85.36], DAC:[23.84,90.40], KHI:[24.91,67.16], LHE:[31.52,74.40], ISB:[33.55,72.83],
+  BKK:[13.69,100.75], BBK:[13.69,100.75], DMK:[13.91,100.61], HKT:[8.11,98.32], KBV:[8.10,98.99],
+  USM:[9.55,100.06], CNX:[18.77,98.96], KUL:[2.75,101.71], PEN:[5.30,100.28], LGK:[6.33,99.73],
+  BKI:[5.94,116.05], SIN:[1.36,103.99], CGK:[-6.13,106.66], DPS:[-8.75,115.17], MNL:[14.51,121.02],
+  HAN:[21.22,105.81], SGN:[10.82,106.65], DAD:[16.04,108.20], HKG:[22.31,113.92], PVG:[31.14,121.81],
+  PEK:[40.08,116.58], CAN:[23.39,113.30], ICN:[37.46,126.44], NRT:[35.77,140.39], HND:[35.55,139.78],
+  KIX:[34.43,135.24], SYD:[-33.94,151.18], MEL:[-37.67,144.84], NBO:[-1.32,36.93], ZNZ:[-6.22,39.22],
+  ADD:[8.98,38.80], JNB:[-26.14,28.25], CPT:[-33.97,18.60], MRU:[-20.43,57.68], SEZ:[-4.67,55.52],
+  JFK:[40.64,-73.78], IAD:[38.95,-77.46], LAX:[33.94,-118.41], YYZ:[43.68,-79.63],
+};
+const WX_BOARD = {};                    // airport code -> { temp, code }
+const GEO_KEY = 'lobby-geo-v1';
+let geoCache = {};
+try { geoCache = JSON.parse(localStorage.getItem(GEO_KEY) || '{}') || {}; } catch(_){ geoCache = {}; }
+
+async function coordsFor(code, city){
+  if (AIRPORTS[code]) return AIRPORTS[code];
+  const name = String(city || '').trim();
+  if (!name || name.toUpperCase() === code) return null;
+  const key = code + '|' + name.toLowerCase();
+  if (key in geoCache) return geoCache[key];           // null = looked up before, nothing found
+  try{
+    const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name='
+                          + encodeURIComponent(name));
+    if (!r.ok) return null;                              // try again next refresh
+    const j = await r.json();
+    const hit = j && j.results && j.results[0];
+    geoCache[key] = hit && isFinite(hit.latitude) && isFinite(hit.longitude) ? [hit.latitude, hit.longitude] : null;
+    try { localStorage.setItem(GEO_KEY, JSON.stringify(geoCache)); } catch(_){}
+    return geoCache[key];
+  }catch(_){ return null; }
+}
+
+let boardWxBusy = false;
+async function loadBoardWeather(){
+  if (boardWxBusy) return;
+  boardWxBusy = true;
+  try{
+    const want = new Map();
+    const add = (c, city) => { c = String(c || '').trim().toUpperCase(); if (/^[A-Z]{3}$/.test(c) && !want.has(c)) want.set(c, city); };
+    (FLIGHTS.departures || []).forEach(f => f && add(f.dest, f.city));
+    (FLIGHTS.arrivals   || []).forEach(f => f && add(f.org,  f.city));
+    const pts = [];
+    for (const [code, city] of want){
+      const c = await coordsFor(code, city);
+      if (c) pts.push({ code, lat: c[0], lng: c[1] });
+    }
+    for (let i = 0; i < pts.length; i += 40){
+      const chunk = pts.slice(i, i + 40);
+      try{
+        const r = await fetch('https://api.open-meteo.com/v1/forecast'
+          + '?latitude=' + chunk.map(p => p.lat).join(',') + '&longitude=' + chunk.map(p => p.lng).join(',')
+          + '&current=temperature_2m,weather_code&timezone=auto');
+        if (!r.ok) continue;
+        const data = await r.json();
+        (Array.isArray(data) ? data : [data]).forEach((row, n) => {
+          if (row && row.current && chunk[n] && isFinite(row.current.temperature_2m))
+            WX_BOARD[chunk[n].code] = { temp: Math.round(row.current.temperature_2m), code: row.current.weather_code };
+        });
+      }catch(_){ /* keep the last reading */ }
+    }
+  }catch(_){ /* never let weather break the board */ }
+  finally { boardWxBusy = false; }
+  try { refreshBoards(); } catch(_){}
+}
+
+function wxCell(code){
+  try{
+    const w = WX_BOARD[String(code || '').trim().toUpperCase()];
+    if (!w) return '';
+    const icon = (SKY[w.code] || ['', 'cloud'])[1];
+    return `<svg viewBox="0 0 48 52" aria-hidden="true">${ICONS[icon] || ICONS.cloud}</svg><span>${w.temp}&deg;</span>`;
+  }catch(_){ return ''; }
+}
+
+/* drop whole rows from the bottom until the board fits its box */
+function fitBoard(board, perRow){
+  const box = board.getBoundingClientRect();
+  if (!box.height) return;                        // hidden right now; refreshed again when shown
+  let guard = 60;
+  while (guard-- > 0 && board.children.length > perRow * 2){
+    const last = board.lastElementChild.getBoundingClientRect();
+    if (last.bottom <= box.bottom + 1) break;
+    for (let i = 0; i < perRow; i++) board.removeChild(board.lastElementChild);
+  }
+}
+
+loadFlights().then(() => { refreshBoards(); loadBoardWeather(); });
 setInterval(() => loadFlights().then(refreshBoards), 60000);
+setInterval(loadBoardWeather, WX_REFRESH * 60 * 1000);
+addEventListener('resize', () => { try { refreshBoards(); } catch(_){} });
 
 
 /* ================= the destination map =========================== */
@@ -1626,23 +1743,127 @@ function buildCityLookup(){
   return map;
 }
 
+const PDF_LEG_RE = /([A-Z0-9]{2}[A-Z]?\s?\d{1,5}[A-Z]?)\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{2})([A-Za-z]{3})\s+([A-Z]{3})([A-Z]{3})\s+(\d{3,4})\s+(\d{3,4})/g;
+const PDF_DATE_RE = /^\d{2}\/\d{2}\/\d{4}$/;
+
+/* one page -> { blocks: [{top, bottom, lines:[text], anchors:[...]}], orphans } */
+function scanPdfPage(items, cols){
+  const flH = items.find(it => it.text.trim() === 'Flights');
+  const nH  = items.find(it => it.text.trim() === 'Nights');
+  if (flH) cols.fl = flH.x;
+  if (nH)  cols.n  = nH.x;
+  if (cols.fl == null) return { blocks: [], orphans: [] };
+  const flLeft = cols.fl - 25, flRight = cols.fl + 20;          // column is left-aligned
+  const nLeft = cols.n != null ? cols.n - 5 : cols.fl - 50;
+  const hdrTop = flH ? flH.top + 5 : -Infinity;
+
+  // flight-column lines, merged when items share a baseline
+  const lines = [];
+  items.filter(it => it.top > hdrTop && it.x >= flLeft && it.x <= flRight)
+       .sort((a, b) => a.top - b.top || a.x - b.x)
+       .forEach(it => {
+         const l = lines.find(l => Math.abs(l.top - it.top) <= 1.5);
+         if (l) l.text += ' ' + it.text; else lines.push({ top: it.top, text: it.text });
+       });
+
+  // split into row blocks on the larger gap between table rows
+  const blocks = [];
+  lines.forEach(l => {
+    const b = blocks[blocks.length - 1];
+    if (b && l.top - b.bottom <= 12.4){ b.bottom = l.top; b.lines.push(l.text); }
+    else blocks.push({ top: l.top, bottom: l.top, lines: [l.text], anchors: [] });
+  });
+
+  // anchor = line carrying the Departure + Return dates (+ seats, nights)
+  const rows = [];
+  items.forEach(it => {
+    const r = rows.find(r => Math.abs(r.top - it.top) <= 1.5);
+    if (r) r.items.push(it); else rows.push({ top: it.top, items: [it] });
+  });
+  const orphans = [];
+  rows.forEach(r => {
+    const dates = r.items.filter(it => PDF_DATE_RE.test(it.text.trim())).sort((a, b) => a.x - b.x);
+    if (dates.length < 2) return;
+    // seats / nights are usually on the date line, but when Chrome splits a row
+    // across pages the cells are top-aligned instead, so take the nearest one
+    const near = (test) => items.filter(it => Math.abs(it.top - r.top) <= 12 && test(it))
+                                .sort((a, b) => Math.abs(a.top - r.top) - Math.abs(b.top - r.top))[0];
+    const seatsIt = near(it => it.x < dates[0].x && /\d+\s*Of\s*\d+/.test(it.text));
+    const seats = seatsIt ? /(\d+)\s*Of\s*(\d+)/.exec(seatsIt.text) : null;
+    const nightsIt = near(it => it.x >= nLeft && it.x < flLeft && /^\d{1,3}$/.test(it.text.trim()));
+    const a = { top: r.top, dep: dates[0].text.trim(), ret: dates[1].text.trim(),
+                nights: nightsIt ? nightsIt.text.trim() : '',
+                avail: seats ? Number(seats[1]) : 0, total: seats ? Number(seats[2]) : 0 };
+    const b = blocks.find(b => a.top >= b.top - 6 && a.top <= b.bottom + 6);
+    if (b) b.anchors.push(a); else orphans.push(a);
+  });
+  return { blocks, orphans };
+}
+
+function buildRowsFromPdf(pages, CITY){
+  const out = { departures: [], arrivals: [], unmatched: 0 };
+
+  // stitch rows split by a page break: last block of a page + first block of the
+  // next page belong together when either of them has no date line of its own
+  const all = [];
+  pages.forEach((pg, pi) => {
+    pg.orphans.forEach(o => {                      // date line with no flights beside it
+      const target = pg.blocks.length && o.top > pg.blocks[pg.blocks.length - 1].bottom
+        ? pg.blocks[pg.blocks.length - 1] : pg.blocks[0];
+      if (target) target.anchors.push(o); else out.unmatched++;
+    });
+    pg.blocks.forEach((b, bi) => {
+      const prev = all[all.length - 1];
+      if (bi === 0 && prev && prev.lastOnPage && (!b.anchors.length || !prev.anchors.length)){
+        prev.lines.push(...b.lines); prev.anchors.push(...b.anchors);
+        prev.lastOnPage = bi === pg.blocks.length - 1;
+      } else {
+        all.push({ lines: b.lines.slice(), anchors: b.anchors.slice(), lastOnPage: bi === pg.blocks.length - 1 });
+      }
+    });
+  });
+
+  const fmtTime = s => s.padStart(4, '0').replace(/^(\d{2})(\d{2})$/, '$1:$2');
+  const cap = m => m[0].toUpperCase() + m.slice(1).toLowerCase();
+
+  for (const blk of all){
+    if (blk.anchors.length !== 1){ out.unmatched += Math.max(1, blk.anchors.length); continue; }
+    const a = blk.anchors[0];
+    const legs = [];
+    let m; PDF_LEG_RE.lastIndex = 0;
+    const text = blk.lines.join(' ');
+    while ((m = PDF_LEG_RE.exec(text))) legs.push({
+      no: m[1].replace(/\s+/g, ' ').trim(), dd: m[2], mon: cap(m[3]),
+      org: m[4], dest: m[5], dep: fmtTime(m[6]), arr: fmtTime(m[7]) });
+    if (legs.length < 2 || legs.some(l => !MONTHS_3[l.mon])){ out.unmatched++; continue; }
+
+    const [d1, m1, y1] = a.dep.split('/'), [d2, m2, y2] = a.ret.split('/');
+    const yearOf = l => (MONTHS_3[l.mon] < m1 ? y2 : y1);            // Dec -> Jan rollover
+    const iso = l => `${yearOf(l)}-${MONTHS_3[l.mon]}-${l.dd}`;
+    // the stay is the longest gap between two consecutive legs; the return starts after it
+    const at = l => Date.parse(`${iso(l)}T${l.dep}:00Z`);
+    let split = 1, gap = -Infinity;
+    for (let i = 1; i < legs.length; i++){
+      const g = at(legs[i]) - at(legs[i - 1]);
+      if (g > gap){ gap = g; split = i; }
+    }
+    const outL = legs.slice(0, split), retL = legs.slice(split);
+    const o0 = outL[0], oN = outL[outL.length - 1], r0 = retL[0], rN = retL[retL.length - 1];
+
+    out.departures.push({ time: o0.dep, date: iso(o0), org: o0.org, dest: oN.dest,
+      city: CITY[oN.dest] || oN.dest, via: outL.slice(0, -1).map(l => l.dest),
+      no: o0.no, nights: a.nights, avail: a.avail, total: a.total });
+    out.arrivals.push({ time: rN.arr, date: iso(rN), org: r0.org,
+      city: CITY[r0.org] || r0.org, dest: rN.dest, via: retL.slice(0, -1).map(l => l.dest),
+      no: rN.no, nights: a.nights });
+  }
+  return out;
+}
+
 async function extractFromPdf(file){
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  const CITY = buildCityLookup();
-  const departures = [], arrivals = [];
-  let unmatched = 0;
-
-  const dateRe = /^\d{2}\/\d{2}\/\d{4}$/;
-  const legRe1  = /^([A-Z]{1,3}\s?\d{2,5})\s+\w{3}$/;
-  const legRe2  = /^(\d{2}[A-Za-z]{3})\s+([A-Z]{3})([A-Z]{3})$/;
-  const legRe3  = /^(\d{3,4})\s+(\d{3,4})$/;
-  const fmtTime = s => s.padStart(4, '0').replace(/^(\d{2})(\d{2})$/, '$1:$2');
-  const fmtDate = (tok, year) => {
-    const day = tok.slice(0, 2), mon = MONTHS_3[tok.slice(2)];
-    return mon ? `${year}-${mon}-${day}` : '';
-  };
-
+  const cols = {}, pages = [];
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++){
     const page = await pdf.getPage(pageNo);
     const content = await page.getTextContent();
@@ -1650,76 +1871,9 @@ async function extractFromPdf(file){
     const items = content.items
       .map(it => ({ text: it.str, x: it.transform[4], top: viewport.height - it.transform[5] }))
       .filter(it => it.text.trim());
-    if (!items.length) continue;
-
-    const header = items.find(it => it.text.trim() === 'Flights');
-    const flLeft  = header ? header.x - 40 : 355;
-    const flRight = header ? header.x + 60 : 420;
-
-    const byTop = new Map();
-    items.forEach(it => {
-      const key = Math.round(it.top);
-      if (!byTop.has(key)) byTop.set(key, []);
-      byTop.get(key).push(it);
-    });
-    const tops = [...byTop.keys()].sort((a, b) => a - b);
-    const used = new Set(), lines = [];
-    tops.forEach(t => {
-      if (used.has(t)) return;
-      const group = [t];
-      tops.forEach(t2 => { if (t2 !== t && !used.has(t2) && Math.abs(t2 - t) <= 1.5) group.push(t2); });
-      group.forEach(g => used.add(g));
-      let all = [];
-      group.forEach(g => { all = all.concat(byTop.get(g)); });
-      all.sort((a, b) => a.x - b.x);
-      lines.push({ top: Math.min(...group), items: all });
-    });
-    lines.sort((a, b) => a.top - b.top);
-
-    const anchors = lines.filter(l => l.items.filter(it => dateRe.test(it.text)).length >= 2);
-
-    for (const anchor of anchors){
-      const band = lines.filter(l => Math.abs(l.top - anchor.top) <= 29);
-      const flWords = [];
-      band.forEach(l => l.items.forEach(it => {
-        if (it.x >= flLeft && it.x <= flRight) flWords.push({ top: l.top, x: it.x, text: it.text });
-      }));
-      const flByTop = new Map();
-      flWords.forEach(w => {
-        const key = Math.round(w.top);
-        if (!flByTop.has(key)) flByTop.set(key, []);
-        flByTop.get(key).push(w);
-      });
-      const flLines = [...flByTop.entries()]
-        .sort((a, b) => a[0] - b[0])
-        .map(([, ws]) => ws.sort((a, b) => a.x - b.x).map(w => w.text).join(' '));
-
-      const dateToks = anchor.items.filter(it => dateRe.test(it.text));
-      const depYear = dateToks[0].text.slice(-4);
-      const retYear = dateToks[1].text.slice(-4);
-      let nights = '';
-      anchor.items.forEach(it => { if (it.x >= 320 && it.x <= 358 && /^\d{1,2}$/.test(it.text)) nights = it.text; });
-      let avail = '', total = '';
-      const texts = anchor.items.map(it => it.text);
-      const ofIdx = texts.indexOf('Of');
-      if (ofIdx > 0 && ofIdx < texts.length - 1){ avail = texts[ofIdx - 1]; total = texts[ofIdx + 1]; }
-
-      if (flLines.length !== 6){ unmatched++; continue; }
-      const m1a = legRe1.exec(flLines[0]), m1b = legRe2.exec(flLines[1]), m1c = legRe3.exec(flLines[2]);
-      const m2a = legRe1.exec(flLines[3]), m2b = legRe2.exec(flLines[4]), m2c = legRe3.exec(flLines[5]);
-      if (!m1a || !m1b || !m1c || !m2a || !m2b || !m2c){ unmatched++; continue; }
-
-      const leg1 = { no: m1a[1].replace(/\s+/g, ' ').trim(), date: fmtDate(m1b[1], depYear), org: m1b[2], dest: m1b[3], out: fmtTime(m1c[1]) };
-      const leg2 = { no: m2a[1].replace(/\s+/g, ' ').trim(), date: fmtDate(m2b[1], retYear), org: m2b[2], dest: m2b[3], in: fmtTime(m2c[2]) };
-
-      departures.push({ time: leg1.out, date: leg1.date, org: leg1.org, dest: leg1.dest,
-        city: CITY[leg1.dest] || leg1.dest, via: [], no: leg1.no, nights,
-        avail: Number(avail) || 0, total: Number(total) || 0 });
-      arrivals.push({ time: leg2.in, date: leg2.date, org: leg2.org,
-        city: CITY[leg2.org] || leg2.org, dest: leg2.dest, via: [], no: leg2.no, nights });
-    }
+    pages.push(scanPdfPage(items, cols));
   }
-  return { departures, arrivals, unmatched };
+  return buildRowsFromPdf(pages, buildCityLookup());
 }
 
 /* ---- the review table: extracted PDF rows are shown editable here,
@@ -1806,7 +1960,7 @@ async function saveToWorker(pass, departures, arrivals, msg){
     if (r.ok && out.ok){
       msg.textContent = 'Saved. The board updates within a minute.';
       msg.className = 'editMsg ok';
-      loadFlights().then(refreshBoards);
+      loadFlights().then(() => { refreshBoards(); loadBoardWeather(); });
       setTimeout(closeEdit, 1400);
     } else {
       msg.textContent = out.error || 'Wrong password, or the save failed.';
