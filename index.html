@@ -1549,7 +1549,7 @@ sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
 sheet.addEventListener('dblclick', e => e.stopPropagation());
 
 /* ---- editing flights: password checked server-side, never in this file ---- */
-const FLIGHTS_API = 'REPLACE_WITH_WORKER_URL';
+const FLIGHTS_API = 'https://lobby-flights.sayed-alnaser-2.workers.dev';
 
 function openEdit(){
   $('editMsg').textContent = '';
