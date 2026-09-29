@@ -166,6 +166,8 @@
   .board > .cell{ padding-top: clamp(3px,.62vh,10px); padding-bottom: clamp(3px,.62vh,10px); }
   .c-wx{ gap:.3em; font-size: clamp(13px,1.95vh,27px); font-variant-numeric: tabular-nums; white-space:nowrap; }
   .c-wx svg{ width:1.45em; height:1.55em; flex:0 0 auto; }
+  body.no-wx .c-wx, body.no-wx .board > .hd.h-wx{ display:none; }
+  body.no-wx .board{ grid-template-columns: max-content minmax(0,1fr) max-content max-content max-content; }
 
   /* a today row: crimson edge on the time cell, faint wash across */
   .board > .cell.today{ background: rgba(196,18,48,.055); }
@@ -511,6 +513,7 @@
     .row{ --cols: 3; }
     .c-flight, .board > .hd.h-flight{ display:none; }
     .board{ grid-template-columns: max-content minmax(0,1fr) max-content max-content max-content; }
+    body.no-wx .board{ grid-template-columns: max-content minmax(0,1fr) max-content max-content; }
   }
   @media (max-width: 560px){
     :root{ --face: clamp(56px, 30vw, 150px); }
@@ -566,6 +569,7 @@
         <h4>On the destination map</h4>
         <div class="grid" id="optPlaces"></div>
         <h4>Flights</h4>
+        <div class="grid" id="optBoard" style="margin-bottom:12px"></div>
         <button class="act ghost" id="openEdit" type="button">Edit departures / arrivals…</button>
       </div>
       <footer>
@@ -903,7 +907,7 @@ function drawBoard(target, list, kind){
                  'DATE', (arriving || !SHOW_SEATS) ? 'NIGHTS' : 'SEATS'];
   heads.forEach((h, i) => {
     const d = document.createElement('div');
-    d.className = 'hd' + (i === 3 ? ' h-flight' : '');
+    d.className = 'hd' + (i === 3 ? ' h-flight' : '') + (i === 2 ? ' h-wx' : '');
     if (i === 5) d.style.justifyContent = 'flex-end';
     d.textContent = h;
     board.appendChild(d);
@@ -1022,6 +1026,7 @@ async function coordsFor(code, city){
 
 let boardWxBusy = false;
 async function loadBoardWeather(){
+  try { if (settings.board.weather === false) return; } catch(_){}
   if (boardWxBusy) return;
   boardWxBusy = true;
   try{
@@ -1548,7 +1553,7 @@ function stopMapTour(){
 
 const STORE = 'alnaser.display.v1';
 const settings = (() => {
-  const base = { scenes:{}, places:{} };
+  const base = { scenes:{}, places:{}, board:{ weather:true } };
   SCENES.forEach(s => base.scenes[s.id] = true);
   PLACES.forEach(p => base.places[p.file] = true);
   try{
@@ -1556,6 +1561,7 @@ const settings = (() => {
     if (saved){
       Object.keys(base.scenes).forEach(k => { if (k in (saved.scenes||{})) base.scenes[k] = !!saved.scenes[k]; });
       Object.keys(base.places).forEach(k => { if (k in (saved.places||{})) base.places[k] = !!saved.places[k]; });
+      if (saved.board && 'weather' in saved.board) base.board.weather = !!saved.board.weather;
     }
   }catch(_){}
   return base;
@@ -1563,6 +1569,13 @@ const settings = (() => {
 function saveSettings(){
   try{ localStorage.setItem(STORE, JSON.stringify(settings)); }catch(_){}
 }
+/* weather column on the boards: on/off from the chooser */
+function applyWeatherSetting(){
+  document.body.classList.toggle('no-wx', !settings.board.weather);
+  if (settings.board.weather) loadBoardWeather();
+  try { refreshBoards(); } catch(_){}
+}
+document.body.classList.toggle('no-wx', !settings.board.weather);
 
 const dots = $('dots');
 const liveScenes = () => SCENES.filter(s => settings.scenes[s.id]);
@@ -1639,6 +1652,16 @@ function drawSheet(){
     });
     pl.appendChild(l);
   });
+
+  const bo = $('optBoard'); bo.innerHTML = '';
+  const wl = document.createElement('label'); wl.className = 'opt' + (settings.board.weather ? '' : ' off');
+  wl.innerHTML = `<input type="checkbox" ${settings.board.weather ? 'checked' : ''}><span>Weather<small>on departures &amp; arrivals</small></span>`;
+  wl.querySelector('input').addEventListener('change', e => {
+    settings.board.weather = e.target.checked;
+    wl.classList.toggle('off', !e.target.checked);
+    saveSettings(); applyWeatherSetting();
+  });
+  bo.appendChild(wl);
 }
 
 function openSheet(){
@@ -1660,7 +1683,8 @@ $('sheetAll').addEventListener('click', e => {
   e.stopPropagation();
   SCENES.forEach(s => settings.scenes[s.id] = true);
   PLACES.forEach(p => settings.places[p.file] = true);
-  saveSettings(); drawSheet();
+  settings.board.weather = true;
+  saveSettings(); drawSheet(); applyWeatherSetting();
 });
 sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
 sheet.addEventListener('dblclick', e => e.stopPropagation());
