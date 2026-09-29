@@ -451,6 +451,12 @@
   .reviewTable td[contenteditable]{ min-width:52px; cursor:text; }
   .reviewTable td[contenteditable]:focus{ outline:2px solid var(--crimson); outline-offset:-2px; }
   .reviewTable .rmRow{ border:none; background:none; color:var(--crimson); cursor:pointer; font-size:14px; }
+  .filterBar{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin:6px 0 12px; }
+  .filterBar input[type=search]{ flex:1 1 260px; font-family:inherit; font-size: clamp(12px,1.5vh,15px); color:var(--navy);
+    padding:8px 10px; border:1px solid var(--rule); border-radius:4px; background:var(--card); }
+  .filterBar .fChk{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); letter-spacing:.06em; cursor:pointer; }
+  .filterBar .fCount{ font-size:12px; color:var(--muted); letter-spacing:.06em; }
+  #templateRow{ display:flex; flex-wrap:wrap; gap:8px; }
   .grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(190px,1fr)); gap:6px 14px; }
   .opt{
     display:flex; align-items:center; gap:10px; cursor:pointer;
@@ -588,7 +594,7 @@
     <div class="panel">
       <header>
         <h3>Edit flights</h3>
-        <p>Password-protected. Upload an Excel or PDF file to replace the departures/arrivals board.</p>
+        <p>Password-protected. Upload an Excel or PDF file, or edit the current flights directly.</p>
       </header>
       <div class="body">
         <div class="editRow">
@@ -600,11 +606,17 @@
           <input type="file" id="editFile" accept=".xlsx,.pdf">
         </div>
         <div class="editRow" id="templateRow">
+          <button class="act solid" id="editCurrent" type="button">Edit current flights</button>
           <button class="act ghost" id="editTemplate" type="button">Download current as Excel</button>
         </div>
         <div class="editMsg" id="editMsg"></div>
         <div class="reviewWrap" id="reviewWrap" style="display:none">
-          <p class="editMsg">Read from the PDF — check every row, then confirm. Add or remove rows as needed.</p>
+          <p class="editMsg" id="reviewNote">Read from the PDF — check every row, then confirm. Add or remove rows as needed.</p>
+          <div class="filterBar">
+            <input type="search" id="revFilter" placeholder="Filter — city, airport, flight no. or date (e.g. Trabzon, TZX, VF5594, 2026-10-03)">
+            <label class="fChk"><input type="checkbox" id="revHidePast" checked> Hide past trips</label>
+            <span class="fCount" id="revCount"></span>
+          </div>
           <h4>Departures</h4>
           <div class="reviewTable" id="reviewDep"></div>
           <button class="act ghost" id="addDep" type="button">+ Add departure row</button>
@@ -1951,8 +1963,10 @@ async function extractFromPdf(file){
 
 /* ---- the review table: extracted PDF rows are shown editable here,
    nothing is saved until this is confirmed ---- */
-const DEP_COLS = ['date','time','org','dest','city','no','nights','avail','total'];
-const ARR_COLS = ['date','time','org','city','dest','no','nights'];
+const DEP_COLS = ['date','time','org','dest','city','via','no','nights','avail','total'];
+const ARR_COLS = ['date','time','org','city','dest','via','no','nights'];
+const escHtml = v => String(v ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const cellText = v => Array.isArray(v) ? v.join(', ') : (v ?? '');
 let reviewDepRows = [], reviewArrRows = [], inReview = false;
 
 function blankRow(cols){ const o = {}; cols.forEach(c => o[c] = ''); return o; }
@@ -1961,13 +1975,36 @@ function renderReview(){
   const draw = (el, rows, cols) => {
     const head = '<tr>' + cols.map(c => `<th>${c}</th>`).join('') + '<th></th></tr>';
     const body = rows.map((r, i) => '<tr>' + cols.map(c =>
-      `<td contenteditable="true" data-i="${i}" data-c="${c}">${(r[c] ?? '')}</td>`).join('') +
+      `<td contenteditable="true" data-i="${i}" data-c="${c}">${escHtml(cellText(r[c]))}</td>`).join('') +
       `<td><button type="button" class="rmRow" data-i="${i}">&times;</button></td></tr>`).join('');
     el.innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
   };
   draw($('reviewDep'), reviewDepRows, DEP_COLS);
   draw($('reviewArr'), reviewArrRows, ARR_COLS);
+  applyReviewFilter();
 }
+
+/* filter only hides rows on screen — every row is still saved */
+function applyReviewFilter(){
+  const q = ($('revFilter').value || '').trim().toLowerCase();
+  const hidePast = $('revHidePast').checked;
+  const today = homeParts().key;
+  let shown = 0, total = 0;
+  [['reviewDep', reviewDepRows], ['reviewArr', reviewArrRows]].forEach(([id, rows]) => {
+    $(id).querySelectorAll('tbody tr').forEach(tr => {
+      const r = rows[+tr.querySelector('td[data-i]').dataset.i] || {};
+      const blank = !r.date && !r.time;                       // new rows always stay visible
+      const text = Object.values(r).map(cellText).join(' ').toLowerCase();
+      const ok = blank || ((!q || text.includes(q)) && !(hidePast && r.date && r.date < today));
+      tr.style.display = ok ? '' : 'none';
+      total++; if (ok) shown++;
+    });
+  });
+  $('revCount').textContent = shown === total ? `${total} rows` : `Showing ${shown} of ${total} rows`;
+}
+$('revFilter').addEventListener('input', applyReviewFilter);
+$('revHidePast').addEventListener('change', applyReviewFilter);
+$('revFilter').addEventListener('dblclick', e => e.stopPropagation());
 $('reviewDep').addEventListener('focusout', e => {
   const td = e.target.closest('td[contenteditable]'); if (!td) return;
   reviewDepRows[+td.dataset.i][td.dataset.c] = td.textContent.trim();
@@ -1984,12 +2021,19 @@ $('reviewArr').addEventListener('click', e => {
   const b = e.target.closest('.rmRow'); if (!b) return;
   reviewArrRows.splice(+b.dataset.i, 1); renderReview();
 });
-$('addDep').addEventListener('click', e => { e.stopPropagation(); reviewDepRows.push(blankRow(DEP_COLS)); renderReview(); });
-$('addArr').addEventListener('click', e => { e.stopPropagation(); reviewArrRows.push(blankRow(ARR_COLS)); renderReview(); });
+function addReviewRow(id, rows, cols){
+  rows.push(blankRow(cols)); renderReview();
+  const box = $(id); box.scrollTop = box.scrollHeight;
+  const first = box.querySelector('tbody tr:last-child td[contenteditable]'); if (first) first.focus();
+}
+$('addDep').addEventListener('click', e => { e.stopPropagation(); addReviewRow('reviewDep', reviewDepRows, DEP_COLS); });
+$('addArr').addEventListener('click', e => { e.stopPropagation(); addReviewRow('reviewArr', reviewArrRows, ARR_COLS); });
 
-function enterReview(departures, arrivals){
+function enterReview(departures, arrivals, note){
   inReview = true;
   reviewDepRows = departures; reviewArrRows = arrivals;
+  $('reviewNote').textContent = note || 'Read from the PDF — check every row, then confirm. Add or remove rows as needed.';
+  $('revFilter').value = '';
   renderReview();
   $('pickRow').style.display = 'none';
   $('templateRow').style.display = 'none';
@@ -2005,6 +2049,17 @@ function exitReview(){
   $('reviewBack').style.display = 'none';
   $('editSave').textContent = 'Save';
 }
+/* open the board that's live right now in the table, ready to edit */
+$('editCurrent').addEventListener('click', async e => {
+  e.stopPropagation();
+  await loadFlights();
+  const byWhen = (a, b) => (String(a.date) + String(a.time).padStart(5, '0')).localeCompare(String(b.date) + String(b.time).padStart(5, '0'));
+  const copy = (list, cols) => (list || []).map(r => { const o = {}; cols.forEach(c => o[c] = cellText(r[c])); return o; }).sort(byWhen);
+  enterReview(copy(FLIGHTS.departures, DEP_COLS), copy(FLIGHTS.arrivals, ARR_COLS),
+    'Current board — click any cell to change it, \u00d7 to remove a row, or add new rows. Nothing changes until you press Confirm & save.');
+  $('editMsg').textContent = ''; $('editMsg').className = 'editMsg';
+});
+
 $('reviewBack').addEventListener('click', e => {
   e.stopPropagation();
   exitReview();
@@ -2013,7 +2068,8 @@ $('reviewBack').addEventListener('click', e => {
 
 function rowsFromReviewTable(cols, rows, hasSeats){
   return rows.map(r => {
-    const via = [];
+    const via = (Array.isArray(r.via) ? r.via : String(r.via || '').split(/[\s,;·\/]+/))
+      .map(v => String(v).trim().toUpperCase()).filter(v => /^[A-Z]{3}$/.test(v));
     const out = { time: r.time||'', date: r.date||'', org: (r.org||'').toUpperCase(),
       dest: (r.dest||'').toUpperCase(), city: r.city||'', via, no: r.no||'', nights: r.nights||'' };
     if (hasSeats){ out.avail = Number(r.avail) || 0; out.total = Number(r.total) || 0; }
